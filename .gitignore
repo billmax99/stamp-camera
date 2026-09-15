@@ -1,0 +1,18 @@
+# 依赖与本地工具
+node_modules/
+jdk21/
+
+# Android 构建产物
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/.idea/
+*.log
+
+# 机器特定配置
+local.md
+
+# 调试临时文件
+debug-*.png
+ui.xml
