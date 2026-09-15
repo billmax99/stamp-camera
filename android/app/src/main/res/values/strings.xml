@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">邮票相机</string>
+    <string name="title_activity_main">邮票相机</string>
+    <string name="package_name">com.stampcamera.app</string>
+    <string name="custom_url_scheme">com.stampcamera.app</string>
+</resources>

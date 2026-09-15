@@ -1,0 +1,11 @@
+{
+  "appId": "com.stampcamera.app",
+  "appName": "邮票相机",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}

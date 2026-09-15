@@ -1,0 +1,1925 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#101010">
+<title>邮票相机 · 把美好邮给你</title>
+<style>
+:root{
+  --paper:#f3ecdd;
+  --ink:#2b2620;
+  --accent:#b5382a; /* 邮政红 */
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  font-family:system-ui,-apple-system,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;
+  background:#101010;color:#eee;overflow:hidden;user-select:none;-webkit-user-select:none;
+}
+.hidden{display:none!important}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column}
+
+/* ————— ① 相机屏 ————— */
+#camScreen{background:#000}
+#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:filter .3s}
+#video.mirrored{transform:scaleX(-1)}
+.cam-topbar,.cam-bottombar{position:relative;z-index:2;display:flex;align-items:center}
+.cam-topbar{
+  justify-content:space-between;
+  padding:calc(env(safe-area-inset-top,0px) + 12px) 16px 12px;
+  background:linear-gradient(rgba(0,0,0,.5),transparent);
+}
+.cam-bottombar{
+  justify-content:space-between;
+  padding:26px 34px calc(env(safe-area-inset-bottom,0px) + 30px);
+  background:linear-gradient(transparent,rgba(0,0,0,.55));
+  margin-top:auto;
+}
+.cam-title{text-align:center;text-shadow:0 1px 4px rgba(0,0,0,.5)}
+.cam-title b{display:block;font-size:15px;letter-spacing:3px;font-weight:600}
+.icon-btn{
+  position:relative;width:44px;height:44px;border:none;border-radius:50%;
+  background:rgba(0,0,0,.38);color:#fff;font-size:19px;line-height:44px;text-align:center;
+  backdrop-filter:blur(6px);cursor:pointer;transition:transform .12s;
+}
+.icon-btn:active{transform:scale(.9)}
+.icon-btn.dark{background:rgba(0,0,0,.08);color:var(--ink)}
+.icon-btn.on{background:var(--accent)}
+.badge{
+  position:absolute;top:-2px;right:-4px;min-width:18px;height:18px;padding:0 4px;
+  border-radius:9px;background:#e5484d;color:#fff;font-size:11px;line-height:18px;font-weight:600;
+}
+.side-spacer{width:44px;flex:none}
+.shutter{
+  width:76px;height:76px;border-radius:50%;border:5px solid #fff;
+  background:rgba(255,255,255,.22);cursor:pointer;box-shadow:0 0 0 2px rgba(0,0,0,.15);
+  transition:transform .12s;display:flex;align-items:center;justify-content:center;font-size:26px;
+}
+.shutter:active{transform:scale(.9)}
+.sh-love{border-color:#ff5f7a;background:rgba(229,72,77,.28)}
+.sh-seal{border-color:#c0392b;background:rgba(192,57,43,.35)}
+.sh-gold{border-color:#d4af37;background:rgba(212,175,55,.22)}
+#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:5}
+#flash.on{animation:flash .3s ease-out}
+@keyframes flash{0%{opacity:0}18%{opacity:.95}100%{opacity:0}}
+#countdown{
+  position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;font-family:"STXingkai","KaiTi","STKaiti","Kaiti SC","DFKai-SB",serif;
+}
+#countdown span{
+  font-size:150px;font-weight:700;color:#fff;text-shadow:0 6px 30px rgba(0,0,0,.55);
+  animation:cdpop 1s ease;
+}
+@keyframes cdpop{0%{transform:scale(1.7);opacity:0}25%{opacity:1}100%{transform:scale(.95)}}
+
+/* ————— ② 裁切 / 邮票屏 ————— */
+#stampScreen{background:var(--paper);color:var(--ink);transition:background .3s}
+#stampScreen.dark-bg .stamp-hint{color:#c8cfe0}
+#stampScreen.dark-bg .text-btn{color:#b9c2d8}
+.stamp-hint{text-align:center;padding:calc(env(safe-area-inset-top,0px) + 16px) 12px 0;font-size:13px;color:#8b7f66;letter-spacing:2px}
+.stamp-stage{
+  margin:auto;position:relative;display:inline-block;align-self:center;
+  filter:drop-shadow(0 14px 28px rgba(60,45,15,.35));
+  z-index:1;
+}
+/* 斜置艺术字水印:隐隐约约衬在邮票后面 */
+.wm{
+  position:absolute;inset:0;z-index:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  transform:rotate(-14deg);pointer-events:none;white-space:nowrap;
+  font-family:"STXingkai","KaiTi","STKaiti","Kaiti SC","DFKai-SB",serif;
+  font-weight:700;font-size:96px;line-height:1.22;letter-spacing:10px;
+  color:#8b7f66;opacity:.09;user-select:none;
+}
+.wm span:nth-child(2){margin-left:130px}
+#stampScreen.dark-bg .wm{color:#c8cfe0;opacity:.12}
+#stampCanvas{display:block;height:min(56vh,500px);width:auto;max-width:min(92vw,560px);border-radius:3px;cursor:pointer;touch-action:none}
+#stampCanvas.thump{animation:thump .45s cubic-bezier(.2,1.4,.4,1)}
+@keyframes thump{0%{transform:scale(1.16) rotate(-2deg)}60%{transform:scale(.97)}100%{transform:scale(1)}}
+#cutter{
+  position:absolute;width:38px;height:38px;border-radius:50%;pointer-events:none;
+  transform:translate(-50%,-50%);
+  background:radial-gradient(circle at 34% 30%,#fff 0%,#c7ccd4 38%,#787f8a 68%,#3d424b 100%);
+  box-shadow:0 4px 10px rgba(0,0,0,.45),inset 0 0 0 3px rgba(255,255,255,.4);
+  animation:spin .45s linear infinite;
+}
+#cutter::after{content:"";position:absolute;inset:13px;border-radius:50%;background:#23262c}
+@keyframes spin{
+  from{transform:translate(-50%,-50%) rotate(0)}
+  to{transform:translate(-50%,-50%) rotate(360deg)}
+}
+.stamp-actions{
+  display:flex;gap:4px;justify-content:center;align-items:center;
+  padding:18px 12px calc(env(safe-area-inset-bottom,0px) + 28px);
+  visibility:hidden;
+}
+.stamp-actions.show{visibility:visible}
+.primary-btn{
+  border:none;border-radius:999px;background:var(--accent);color:#fff;
+  font-size:16px;font-weight:600;padding:13px 18px;cursor:pointer;white-space:nowrap;
+  box-shadow:0 4px 14px rgba(181,56,42,.35);transition:transform .12s;
+}
+.primary-btn:active{transform:scale(.96)}
+.primary-btn:disabled{opacity:.5}
+.text-btn{border:none;background:none;color:#7a6f57;font-size:14px;padding:10px 6px;cursor:pointer;white-space:nowrap}
+.text-btn.light{color:#f3ecdd}
+.text-btn.danger{color:#ff8a8a}
+
+/* ————— 定制抽屉 ————— */
+.drawer{position:fixed;inset:0;z-index:15;display:flex;align-items:flex-end;pointer-events:none}
+.drawer-mask{position:absolute;inset:0;background:rgba(20,15,5,.35);opacity:0;transition:opacity .25s}
+.drawer-panel{
+  position:relative;width:100%;max-height:76%;overflow-y:auto;background:#fbf6ea;color:var(--ink);
+  border-radius:18px 18px 0 0;padding:14px 18px calc(env(safe-area-inset-bottom,0px) + 18px);
+  transform:translateY(100%);transition:transform .28s cubic-bezier(.3,1,.4,1);
+}
+.drawer.open{pointer-events:auto}
+.drawer.open .drawer-mask{opacity:1}
+.drawer.open .drawer-panel{transform:none}
+.drawer-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
+.drawer-head span{font-weight:700;letter-spacing:1px;font-size:16px}
+#drawerClose{border:none;background:var(--accent);color:#fff;border-radius:999px;padding:8px 20px;font-size:14px;cursor:pointer}
+.sec{margin:13px 0}
+.sec-t{font-size:12px;color:#8b7f66;letter-spacing:2px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.chip{
+  border:1px solid #cdbd97;background:#fff;border-radius:999px;padding:7px 14px;
+  font-size:13px;color:#5c5138;cursor:pointer;
+}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.drawer-panel input[type=text]{
+  width:100%;margin-top:8px;border:1px solid #d8cbae;border-radius:10px;
+  padding:10px 12px;font-size:15px;background:#fff;color:var(--ink);
+}
+.drawer-panel input[type=text]:focus{outline:none;border-color:var(--accent)}
+.slider-row{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:13px;color:#5c5138}
+.slider-row input[type=range]{flex:1;accent-color:var(--accent)}
+
+/* ————— ③ 邮册屏 ————— */
+#albumScreen{background:var(--paper);color:var(--ink)}
+.album-topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:calc(env(safe-area-inset-top,0px) + 12px) 14px 10px;
+  border-bottom:1px dashed #d8cbae;
+}
+.album-title{font-size:17px;font-weight:700;letter-spacing:1px}
+.album-grid{
+  flex:1;overflow-y:auto;display:grid;gap:16px;padding:18px 16px calc(env(safe-area-inset-bottom,0px) + 24px);
+  grid-template-columns:repeat(auto-fill,minmax(104px,1fr));align-content:start;
+}
+.album-grid .cell:nth-child(odd){transform:rotate(-1.8deg)}
+.album-grid .cell:nth-child(even){transform:rotate(1.6deg)}
+.album-grid img{width:100%;height:auto;border-radius:2px;cursor:pointer;display:block;box-shadow:0 3px 10px rgba(60,45,15,.28)}
+.album-empty{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+}
+.album-empty .big{font-size:64px}
+.album-empty p{font-size:16px;color:#6d6350}
+.album-empty .sub{font-size:13px;color:#a3987e;margin-bottom:14px}
+
+/* ————— 查看大图 ————— */
+.viewer{
+  position:fixed;inset:0;z-index:20;background:rgba(12,10,6,.82);backdrop-filter:blur(4px);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;
+}
+.viewer img{height:min(66vh,560px);max-width:88vw;object-fit:contain;border-radius:4px;box-shadow:0 18px 50px rgba(0,0,0,.6)}
+.viewer-actions{display:flex;gap:6px}
+
+/* ————— 提示 ————— */
+.toast{
+  position:fixed;left:50%;bottom:16%;transform:translateX(-50%) translateY(8px);z-index:30;
+  background:rgba(20,18,14,.88);color:#fff;font-size:14px;padding:10px 20px;border-radius:999px;
+  opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;white-space:nowrap;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<!-- ① 相机屏 -->
+<section id="camScreen" class="screen">
+  <video id="video" autoplay playsinline muted></video>
+  <header class="cam-topbar">
+    <button id="albumBtn" class="icon-btn" aria-label="我的邮册">📮<span id="albumBadge" class="badge hidden">0</span></button>
+    <div class="cam-title"><b>邮票相机</b></div>
+    <div style="display:flex;gap:10px">
+      <button id="fxBtn" class="icon-btn" aria-label="拍摄效果与定制">✨</button>
+      <button id="flipBtn" class="icon-btn" aria-label="翻转镜头">🔄</button>
+    </div>
+  </header>
+  <footer class="cam-bottombar">
+    <button id="uploadBtn" class="icon-btn" aria-label="从相册导入照片">🖼️</button>
+    <button id="shutterBtn" class="shutter" aria-label="拍一张"></button>
+    <button id="timerBtn" class="icon-btn" aria-label="定时拍摄">⏱</button>
+  </footer>
+  <div id="flash"></div>
+  <div id="countdown" class="hidden"></div>
+  <input id="fileInput" type="file" accept="image/*" hidden>
+</section>
+
+<!-- ② 裁切 / 邮票屏 -->
+<section id="stampScreen" class="screen hidden">
+  <div class="wm" aria-hidden="true"><span>把美好</span><span>邮给你</span></div>
+  <div id="stampHint" class="stamp-hint">✂ 裁切中…</div>
+  <div class="stamp-stage">
+    <canvas id="stampCanvas"></canvas>
+    <div id="cutter" class="hidden"></div>
+  </div>
+  <footer id="stampActions" class="stamp-actions">
+    <button id="retakeBtn" class="text-btn">重拍</button>
+    <button id="saveBtn" class="primary-btn">📮 收进邮册</button>
+    <button id="editBtn" class="text-btn">✏️ 定制</button>
+    <button id="downloadBtn" class="text-btn">下载</button>
+    <button id="shareBtn" class="text-btn">分享</button>
+  </footer>
+</section>
+
+<!-- 定制抽屉(相机屏 ✨ / 邮票屏 ✏️ 都能打开) -->
+<div id="drawer" class="drawer">
+  <div class="drawer-mask" id="drawerMask"></div>
+  <div class="drawer-panel">
+    <div class="drawer-head"><span>邮票定制</span><button id="drawerClose">完成</button></div>
+
+    <div class="sec"><div class="sec-t">模板 · 一键整套</div><div class="chips" id="tplChips"></div></div>
+    <div class="sec"><div class="sec-t">整体风格 · 只换观感不动文案</div><div class="chips" id="styleChips"></div></div>
+
+    <div class="sec"><div class="sec-t">拍摄按键</div><div class="chips" id="shutterChips"></div></div>
+    <div class="sec"><div class="sec-t">美颜美白 · 取景实时预览</div><div class="chips" id="beautyChips"></div></div>
+    <div class="sec"><div class="sec-t">背景虚化 · 拍摄时生效</div><div class="chips" id="blurChips"></div></div>
+    <div class="sec"><div class="sec-t">拍摄模式</div><div class="chips" id="modeChips"></div></div>
+    <div class="sec"><div class="sec-t">贴饰 · 可多选</div><div class="chips" id="stickerChips"></div>
+      <label class="slider-row">饰品大小<input type="range" id="stickerSizeRange" min="60" max="160" value="100"></label>
+    </div>
+
+    <div class="sec"><div class="sec-t">邮资面值</div>
+      <input type="text" id="valueInput" maxlength="8" placeholder="如 80分 / 无价 / 520">
+      <div class="chips" id="valueChips"></div>
+    </div>
+    <div class="sec"><div class="sec-t">发行方</div>
+      <input type="text" id="issuerInput" maxlength="10" placeholder="中文行,如 中国邮政 / 把我邮给你">
+      <input type="text" id="issuerSubInput" maxlength="18" placeholder="小字行,如 CHINA POST(可留空)">
+    </div>
+    <div class="sec"><div class="sec-t">文字排版 · 按住文字可直接拖动</div><div class="chips" id="textSelChips"></div>
+      <label class="slider-row">角度<input type="range" id="textAngleRange" min="-30" max="30" value="0"></label>
+      <div class="chips"><button id="resetPoseBtn" class="chip">文字与摆放全部归位</button></div>
+    </div>
+
+    <div class="sec"><div class="sec-t">纸面</div><div class="chips" id="paperChips"></div></div>
+    <div class="sec"><div class="sec-t">质感 · 做旧可多选</div><div class="chips" id="wearChips"></div></div>
+    <div class="sec"><div class="sec-t">背景桌布</div><div class="chips" id="backdropChips"></div></div>
+    <div class="sec"><div class="sec-t">邮票外形</div><div class="chips" id="shapeChips"></div></div>
+    <div class="sec"><div class="sec-t">照片内窗</div><div class="chips" id="windowChips"></div></div>
+    <div class="sec"><div class="sec-t">齿孔样式</div><div class="chips" id="perfChips"></div></div>
+    <div class="sec"><div class="sec-t">裁切方式</div><div class="chips" id="cutChips"></div></div>
+    <div class="sec"><div class="sec-t">邮票大小</div><div class="chips" id="sizeChips"></div></div>
+
+    <div class="sec"><div class="sec-t">纸品 · 裁完后一键变卡片</div><div class="chips" id="productChips"></div>
+      <input type="text" id="cardMsgInput" maxlength="60" placeholder="留言(明信片/拍立得用)">
+    </div>
+
+    <div class="sec"><div class="sec-t">邮戳样式</div><div class="chips" id="markChips"></div></div>
+    <div class="sec"><div class="sec-t">邮戳大小</div>
+      <label class="slider-row"><input type="range" id="markSizeRange" min="70" max="140" value="100"></label>
+    </div>
+    <div class="sec"><div class="sec-t">邮戳位置 · 也可直接在邮票上拖动</div><div class="chips" id="markPosChips"></div></div>
+    <div class="sec"><div class="sec-t">盖戳力度</div><div class="chips" id="markInkChips"></div></div>
+    <div class="sec"><div class="sec-t">吻痕 · 把嘴唇做成专属邮戳</div>
+      <div class="chips"><button id="kissCaptureBtn" class="chip">📷 拍嘴唇做吻痕</button></div>
+      <input type="file" id="kissFile" accept="image/*" hidden>
+    </div>
+  </div>
+</div>
+
+<!-- ③ 邮册屏 -->
+<section id="albumScreen" class="screen hidden">
+  <header class="album-topbar">
+    <button id="backBtn" class="icon-btn dark" aria-label="返回相机">←</button>
+    <div class="album-title">我的邮册 <span id="albumCount2"></span></div>
+    <span style="width:44px;flex:none"></span>
+  </header>
+  <div id="albumGrid" class="album-grid"></div>
+  <div id="albumEmpty" class="album-empty hidden">
+    <div class="big">📮</div>
+    <p>邮册还空着</p>
+    <p class="sub">把第一份美好寄出去吧</p>
+    <button id="emptyBackBtn" class="primary-btn">去拍照</button>
+  </div>
+</section>
+
+<!-- 查看大图 -->
+<div id="viewer" class="viewer hidden">
+  <img id="viewerImg" alt="邮票大图">
+  <div class="viewer-actions">
+    <button id="viewerDownload" class="text-btn light">下载</button>
+    <button id="viewerShare" class="text-btn light">分享</button>
+    <button id="viewerDelete" class="text-btn danger">删除</button>
+    <button id="viewerClose" class="text-btn light">关闭</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+'use strict';
+/* ============================================================
+   纯逻辑核心(test.js 覆盖)。
+   留接口约定:每个可定制维度 = 一张表,抽屉芯片自动生成;
+   加新样式只需往对应表里添一行,其余代码不动。
+   ============================================================ */
+/*CORE-START*/
+// 沿 W×H 矩形外沿按弧长均匀布点(顺时针、避开角点),作为邮票齿孔圆心。
+// ponytail: 均匀弧长布点,角点不特殊处理,观感已足够接近真邮票;要更仿真可改为固定齿距+角部补孔。
+function perforationPath(W, H, spacing) {
+  var P = 2 * (W + H);
+  var n = Math.max(8, Math.round(P / spacing));
+  var holes = [];
+  for (var i = 0; i < n; i++) {
+    var t = (i + 0.5) * (P / n); // 沿周长的弧长位置
+    if (t < W) holes.push({ x: t, y: 0 });
+    else if (t < W + H) holes.push({ x: W, y: t - W });
+    else if (t < 2 * W + H) holes.push({ x: W - (t - W - H), y: H });
+    else holes.push({ x: 0, y: H - (t - 2 * W - H) });
+  }
+  return holes;
+}
+
+// 齿孔样式:shape none=光边;圆孔需 gap>=2.2r、异形孔需 gap>=1.1w,互不重叠
+var PERF_STYLES = [
+  { id: 'classic', name: '经典圆孔', shape: 'circle', r: 11, gap: 25 },
+  { id: 'dense', name: '细密小孔', shape: 'circle', r: 7.5, gap: 17 },
+  { id: 'big', name: '大气大孔', shape: 'circle', r: 14, gap: 31 },
+  { id: 'heart', name: '爱心齿孔', shape: 'heart', w: 26, gap: 35 },
+  { id: 'square', name: '方形齿孔', shape: 'square', w: 15, gap: 24 },
+  { id: 'none', name: '光边无孔', shape: 'none', gap: 25 }
+];
+
+// 裁切动作:dur 毫秒,rev 逆时针
+var CUT_MODES = [
+  { id: 'cw', name: '顺时针走刀', dur: 1700, rev: false },
+  { id: 'ccw', name: '逆时针走刀', dur: 1700, rev: true },
+  { id: 'fast', name: '快刀', dur: 750, rev: false },
+  { id: 'instant', name: '一键即成', dur: 0, rev: false }
+];
+
+// 邮戳样式:none = 不加盖;kissx = 拍嘴唇生成的专属吻痕(有素材时才出现)
+var MARK_STYLES = [
+  { id: 'standard', name: '标准日戳' },
+  { id: 'heart', name: '爱心邮戳' },
+  { id: 'frame', name: '纪念邮戳' },
+  { id: 'kiss', name: '💋 吻痕戳' },
+  { id: 'none', name: '不加盖' }
+];
+
+// 邮戳位置:fx/fy 为照片区域比例,rot 弧度;random 每枚随机;custom 由拖动产生
+var MARK_POS = [
+  { id: 'random', name: '随机' },
+  { id: 'lt', name: '左上', fx: 0.30, fy: 0.14, rot: -0.25 },
+  { id: 'ct', name: '中上', fx: 0.50, fy: 0.12, rot: -0.12 },
+  { id: 'rt', name: '右上', fx: 0.58, fy: 0.16, rot: -0.32 },
+  { id: 'custom', name: '✋ 拖动摆放' }
+];
+
+// 盖戳力度:精细=一次清脆;重油墨=浓;重复=同章叠盖;模糊=蹭花
+var MARK_INK = [
+  { id: 'fine', name: '盖得精细' },
+  { id: 'ink', name: '重油墨' },
+  { id: 'repeat', name: '重复叠印' },
+  { id: 'blur', name: '蹭花模糊' }
+];
+
+// 做旧质感(可多选):划痕/折痕/褪色/污渍
+var WEAR = [
+  { id: 'scratch', name: '划痕' },
+  { id: 'fold', name: '折痕' },
+  { id: 'fade', name: '褪色' },
+  { id: 'stain', name: '污渍' }
+];
+
+// 邮票外形:win/cy 控制内窗大小与中心;inset/dy/fs 控制底部文字带(椭圆/唇形票文字内收)
+var SHAPES = [
+  { id: 'rect', name: '经典方票', win: 1, cy: 0.5, inset: 32, dy: 0, fs: 1 },
+  { id: 'rounded', name: '圆角票', win: 1, cy: 0.5, inset: 42, dy: 0, fs: 0.95 },
+  { id: 'oval', name: '椭圆票', win: 0.84, cy: 0.46, inset: 95, dy: -28, fs: 0.72 },
+  { id: 'lips', name: '唇形票', win: 1, cy: 0.5, inset: 60, dy: 0, fs: 0.9, lips: true }
+];
+
+// 照片内窗形状
+var WINDOWS = [
+  { id: 'rect', name: '方形' },
+  { id: 'rounded', name: '圆角' },
+  { id: 'oval', name: '椭圆形' },
+  { id: 'heart', name: '爱心形' },
+  { id: 'lips', name: '唇形' }
+];
+
+// 邮票纸面
+var PAPERS = [
+  { id: 'ivory', name: '米白', fill: '#fbf8f0' },
+  { id: 'rose', name: '玫瑰粉', fill: '#fdeef1' },
+  { id: 'sky', name: '天空蓝', fill: '#edf4fb' },
+  { id: 'mint', name: '薄荷绿', fill: '#ecf5ec' },
+  { id: 'vintage', name: '做旧黄', fill: '#f2e8d0' }
+];
+
+// 邮票屏背景桌布(dark=深色,需切浅色文字)
+var BACKDROPS = [
+  { id: 'desk', name: '原木桌面', css: 'radial-gradient(130% 90% at 50% 0%,#f8f2e4 0%,#f3ecdd 55%,#e7dcc3 100%)' },
+  { id: 'linen', name: '格子桌布', css: 'repeating-linear-gradient(0deg,#f6efdf 0 18px,#efe5cd 18px 36px),repeating-linear-gradient(90deg,rgba(255,255,255,.5) 0 18px,rgba(206,186,146,.25) 18px 36px)' },
+  { id: 'blush', name: '少女粉', css: 'linear-gradient(160deg,#fde8ec 0%,#f9d7dd 45%,#f3c6cf 100%)' },
+  { id: 'night', name: '午夜蓝', css: 'radial-gradient(120% 100% at 50% 0%,#2c3e5d 0%,#1d2b42 55%,#131c2e 100%)', dark: true }
+];
+
+// 拍摄按键样式
+var SHUTTER_STYLES = [
+  { id: 'classic', name: '经典白环', cls: '', inner: '' },
+  { id: 'love', name: '爱心快门', cls: 'sh-love', inner: '❤️' },
+  { id: 'seal', name: '邮戳红', cls: 'sh-seal', inner: '' },
+  { id: 'gold', name: '鎏金环', cls: 'sh-gold', inner: '' }
+];
+
+// 美颜:css 同时用于取景实时预览与拍照后处理
+var BEAUTY = [
+  { id: '0', name: '关闭', css: '' },
+  { id: '1', name: '自然', css: 'brightness(1.06) saturate(1.08)' },
+  { id: '2', name: '明显', css: 'brightness(1.12) saturate(1.12)' }
+];
+
+// 背景虚化:px 为模糊半径,中心椭圆保持清晰(伪景深)
+var BLUR_BG = [
+  { id: '0', name: '关闭', px: 0 },
+  { id: '1', name: '轻虚化', px: 4 },
+  { id: '2', name: '强虚化', px: 8 }
+];
+
+// 贴饰:x/y 为照片比例,s 为宽度比例
+var STICKERS = [
+  { id: 'crown', e: '👑', name: '皇冠', x: 0.5, y: 0.10, s: 0.30 },
+  { id: 'bow', e: '🎀', name: '蝴蝶结', x: 0.5, y: 0.11, s: 0.24 },
+  { id: 'cat', e: '🐱', name: '猫耳', x: 0.5, y: 0.05, s: 0.52 },
+  { id: 'glasses', e: '🕶️', name: '墨镜', x: 0.5, y: 0.30, s: 0.56 },
+  { id: 'flower', e: '🌸', name: '小花', x: 0.86, y: 0.14, s: 0.22 },
+  { id: 'sparkle', e: '✨', name: '星光', x: 0.14, y: 0.80, s: 0.26 }
+];
+
+// 邮票展示大小
+var SIZE_PRESETS = [
+  { id: 's', name: '小巧', k: 0.85 },
+  { id: 'm', name: '标准', k: 1 },
+  { id: 'l', name: '大张', k: 1.15 }
+];
+
+// 拍摄模式:sheet4 = 连拍 4 张自动合成整版
+var SHOOT_MODES = [
+  { id: 'single', name: '单张' },
+  { id: 'sheet4', name: '四连张 · 整版' }
+];
+
+// 纸品:邮票裁完后一键生成的衍生卡片
+var PRODUCTS = [
+  { id: 'stamp', name: '单枚邮票' },
+  { id: 'postcard', name: '✉️ 明信片' },
+  { id: 'fdc', name: '📃 首日封' },
+  { id: 'polaroid', name: '📷 拍立得' }
+];
+
+// 整体风格:只换观感(不动文案)
+var STYLES = [
+  { id: 'classic', name: '🏛 复古经典', paper: 'vintage', backdrop: 'linen', shape: 'rect', window: 'rect', perf: 'classic', cut: 'ccw', mark: 'standard', shutter: 'seal' },
+  { id: 'love', name: '💌 浪漫书信', paper: 'rose', backdrop: 'blush', shape: 'rounded', window: 'heart', perf: 'heart', cut: 'cw', mark: 'heart', shutter: 'love' },
+  { id: 'starry', name: '✨ 星际漫游', paper: 'sky', backdrop: 'night', shape: 'oval', window: 'oval', perf: 'dense', cut: 'fast', mark: 'frame', shutter: 'gold' },
+  { id: 'mint', name: '🌿 清新薄荷', paper: 'mint', backdrop: 'linen', shape: 'rounded', window: 'rounded', perf: 'big', cut: 'cw', mark: 'standard', shutter: 'classic' }
+];
+
+// 模板:文案 + 整套观感一键换
+var TEMPLATES = [
+  { id: 'wo', name: '💌 把我邮给你', issuer: '把我邮给你', issuerSub: 'MAILED WITH LOVE', value: '无价', valueColor: '#b5382a', paper: 'rose', backdrop: 'blush', shape: 'rounded', window: 'heart', perf: 'heart', cut: 'cw', mark: 'heart', shutter: 'love' },
+  { id: 'meihao', name: '📮 把美好邮给你', issuer: '把美好邮给你', issuerSub: 'SEND THE BEAUTY', value: '美好', valueColor: '#1c1a17', paper: 'ivory', backdrop: 'desk', shape: 'rect', window: 'rect', perf: 'classic', cut: 'cw', mark: 'standard', shutter: 'classic' },
+  { id: 'china', name: '🇨🇳 中国邮政', issuer: '中国邮政', issuerSub: 'CHINA POST', value: '80分', valueColor: '#1c1a17', paper: 'vintage', backdrop: 'linen', shape: 'rect', window: 'rect', perf: 'classic', cut: 'ccw', mark: 'standard', shutter: 'seal' },
+  { id: 'galaxy', name: '✨ 星际邮局', issuer: '星际邮局', issuerSub: 'GALAXY POST', value: '1光年', valueColor: '#1c1a17', paper: 'sky', backdrop: 'night', shape: 'oval', window: 'oval', perf: 'dense', cut: 'fast', mark: 'frame', shutter: 'gold' },
+  { id: 'kiss', name: '💋 以吻封笺', issuer: '以吻封笺', issuerSub: 'SEALED WITH A KISS', value: '一个吻', valueColor: '#ffffff', paper: 'rose', backdrop: 'blush', shape: 'lips', window: 'lips', perf: 'none', cut: 'cw', mark: 'kiss', shutter: 'love' }
+];
+var DEFAULT_TEMPLATE = 'meihao';
+
+var VALUE_PRESETS = ['80分', '1.20元', '1.50元', '无价', '520'];
+/*CORE-END*/
+
+/* ============ 设计常量(邮票内部坐标,2 倍出图) ============ */
+var D = { w: 382, h: 510, top: 26, side: 26, pw: 330, ph: 438, scale: 2 };
+var KAITI = '"KaiTi","STKaiti","Kaiti SC","DFKai-SB",serif';
+var EMOJI = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+
+function idOf(arr, id) { return arr.find(function (x) { return x.id === id; }) || arr[0]; }
+
+// 当前定制(内存保存,拍下一张延续)
+var settings = {
+  issuer: '', issuerSub: '', value: '', valueColor: '#1c1a17',
+  tplId: '', styleId: '',
+  paper: 'ivory', backdrop: 'desk', shape: 'rect', window: 'rect',
+  perf: 'classic', cut: 'cw', mark: 'standard', markSize: 1, markPos: 'random',
+  stampSize: 1, shutter: 'classic',
+  beauty: 1, blurBg: 0, stickers: [], stickerSize: 1,
+  timer: 0, shootMode: 'single', product: 'stamp',
+  cardMsg: '见字如面,把今天的美好邮给你。',
+  markInk: 'fine', wear: [], stampAngle: 0,
+  textSel: 'value',
+  textPos: { value: { dx: 0, dy: 0, rot: 0 }, issuer: { dx: 0, dy: 0, rot: 0 } }
+};
+
+var els = {};
+['video', 'flash', 'timerBtn', 'countdown', 'fileInput', 'camScreen', 'stampScreen', 'albumScreen',
+ 'stampCanvas', 'cutter', 'stampHint', 'stampActions', 'retakeBtn', 'saveBtn', 'downloadBtn', 'editBtn',
+ 'albumBtn', 'albumBadge', 'flipBtn', 'fxBtn', 'uploadBtn', 'shutterBtn', 'backBtn', 'albumGrid',
+ 'albumEmpty', 'emptyBackBtn', 'albumCount2', 'viewer', 'viewerImg',
+ 'viewerDownload', 'viewerDelete', 'viewerClose', 'viewerShare', 'toast',
+ 'shareBtn',
+ 'drawer', 'drawerMask', 'drawerClose',
+ 'tplChips', 'styleChips', 'shutterChips', 'beautyChips', 'blurChips', 'stickerChips', 'stickerSizeRange',
+ 'modeChips', 'productChips', 'cardMsgInput',
+ 'markInkChips', 'wearChips', 'textSelChips', 'textAngleRange', 'resetPoseBtn',
+ 'kissCaptureBtn', 'kissFile',
+ 'valueInput', 'valueChips', 'issuerInput', 'issuerSubInput',
+ 'paperChips', 'backdropChips', 'shapeChips', 'windowChips', 'perfChips', 'cutChips', 'sizeChips',
+ 'markChips', 'markSizeRange', 'markPosChips'
+].forEach(function (id) { els[id] = document.getElementById(id); });
+
+function show(screen) {
+  [els.camScreen, els.stampScreen, els.albumScreen].forEach(function (s) { s.classList.add('hidden'); });
+  screen.classList.remove('hidden');
+  if (screen === els.albumScreen) renderAlbum();
+}
+
+/* ============ 提示 ============ */
+var toastTimer = null;
+function toast(msg) {
+  els.toast.textContent = msg;
+  els.toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { els.toast.classList.remove('show'); }, 2000);
+}
+
+/* ============ 取景:裁成 3:4 竖构图 ============ */
+// ponytail: 固定 3:4 邮票构图,不随镜头/照片比例变化;要自由比例需重排版式。
+function grabFrame(src, sw, sh, mirror) {
+  var TW = 660, TH = 880;
+  var c = document.createElement('canvas');
+  c.width = TW; c.height = TH;
+  var g = c.getContext('2d');
+  var sr = sw / sh, tr = TW / TH;
+  var sx = 0, sy = 0, sW = sw, sH = sh;
+  if (sr > tr) { sW = sh * tr; sx = (sw - sW) / 2; }
+  else { sH = sw / tr; sy = (sh - sH) / 2; }
+  if (mirror) { g.translate(TW, 0); g.scale(-1, 1); }
+  g.drawImage(src, sx, sy, sW, sH, 0, 0, TW, TH);
+  return c;
+}
+
+/* ============ 拍摄后处理:美白 + 伪景深虚化 + 贴饰 ============ */
+function processPhoto(c) {
+  var W = c.width, H = c.height;
+  var bf = idOf(BEAUTY, settings.beauty).css;
+  var blur = idOf(BLUR_BG, settings.blurBg).px;
+  if ((bf || blur) && 'filter' in c.getContext('2d')) {
+    var out = document.createElement('canvas');
+    out.width = W; out.height = H;
+    var og = out.getContext('2d');
+    og.filter = (blur ? 'blur(' + blur + 'px) ' : '') + bf;
+    og.drawImage(c, 0, 0);
+    if (blur) { // 中心椭圆保持清晰(伪景深)
+      var mk = document.createElement('canvas');
+      mk.width = W; mk.height = H;
+      var mg = mk.getContext('2d');
+      mg.filter = bf;
+      mg.drawImage(c, 0, 0);
+      var rg = mg.createRadialGradient(W / 2, H * 0.42, Math.min(W, H) * 0.16, W / 2, H * 0.42, Math.max(W, H) * 0.5);
+      rg.addColorStop(0, 'rgba(0,0,0,1)');
+      rg.addColorStop(0.66, 'rgba(0,0,0,1)');
+      rg.addColorStop(1, 'rgba(0,0,0,0)');
+      mg.globalCompositeOperation = 'destination-in';
+      mg.fillStyle = rg;
+      mg.fillRect(0, 0, W, H);
+      og.filter = 'none';
+      og.drawImage(mk, 0, 0);
+    }
+    c = out;
+  } // ponytail: 老内核无 ctx.filter 时美化自动跳过,不影响出票
+  var g2 = c.getContext('2d');
+  g2.filter = 'none';
+  g2.textAlign = 'center';
+  g2.textBaseline = 'middle';
+  settings.stickers.forEach(function (id) {
+    var st = idOf(STICKERS, id);
+    var size = Math.round(W * st.s * settings.stickerSize);
+    g2.font = size + 'px ' + EMOJI;
+    g2.fillText(st.e, st.x * W, st.y * H);
+  });
+  return c;
+}
+
+/* ============ 邮票绘制 ============ */
+function heartPath(g, x, y, w) {
+  g.moveTo(x, y + 0.62 * w);
+  g.bezierCurveTo(x - 0.78 * w, y + 0.08 * w, x - 0.62 * w, y - 0.55 * w, x, y - 0.2 * w);
+  g.bezierCurveTo(x + 0.62 * w, y - 0.55 * w, x + 0.78 * w, y + 0.08 * w, x, y + 0.62 * w);
+  g.closePath();
+}
+
+// 唇形路径:以 (cx,cy) 为中心,w/h 为整体宽高(含唇珠、饱满下唇)
+function lipsPath(g, cx, cy, w, h) {
+  var x0 = cx - w / 2, y0 = cy - h / 2;
+  function X(u) { return x0 + u * w; }
+  function Y(v) { return y0 + v * h; }
+  g.moveTo(X(0), Y(0.5));
+  g.bezierCurveTo(X(0.06), Y(0.12), X(0.32), Y(0.0), X(0.46), Y(0.22));  // 左上唇
+  g.quadraticCurveTo(X(0.5), Y(0.30), X(0.54), Y(0.22));                 // 唇珠凹
+  g.bezierCurveTo(X(0.68), Y(0.0), X(0.94), Y(0.12), X(1), Y(0.5));     // 右上唇
+  g.bezierCurveTo(X(0.93), Y(0.88), X(0.68), Y(1.0), X(0.5), Y(1.0));   // 右下唇
+  g.bezierCurveTo(X(0.32), Y(1.0), X(0.07), Y(0.88), X(0), Y(0.5));     // 左下唇
+  g.closePath();
+}
+
+function roundRectPath(g, x, y, w, h, r) {
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+function silhouettePath(g, shape) {
+  if (shape.id === 'oval') g.ellipse(D.w / 2, D.h / 2, D.w / 2 - 2, D.h / 2 - 2, 0, 0, 6.2832);
+  else if (shape.id === 'rounded') roundRectPath(g, 1, 1, D.w - 2, D.h - 2, 22);
+  else if (shape.id === 'lips') lipsPath(g, D.w / 2, D.h / 2 - 10, D.w - 10, D.h * 0.56);
+  else g.rect(1, 1, D.w - 2, D.h - 2);
+}
+
+// 内窗实际区域(椭圆票时缩小上移,给底部文字留位)
+function photoRect(shape) {
+  var w = D.pw * shape.win, h = D.ph * shape.win;
+  var cy = D.top + D.ph * shape.cy;
+  return { x: D.side + (D.pw - w) / 2, y: cy - h / 2, w: w, h: h };
+}
+
+function windowPath(g, win, pr) {
+  if (win.id === 'oval') g.ellipse(pr.x + pr.w / 2, pr.y + pr.h / 2, pr.w / 2, pr.h / 2, 0, 0, 6.2832);
+  else if (win.id === 'rounded') roundRectPath(g, pr.x, pr.y, pr.w, pr.h, 20);
+  else if (win.id === 'lips') lipsPath(g, pr.x + pr.w / 2, pr.y + pr.h / 2, pr.w * 0.86, pr.h * 0.52);
+  else if (win.id === 'heart') {
+    // 爱心近似方形轮廓:按宽高取小定尺寸,否则在竖版窗口里会顶到文字带
+    var w = Math.min(pr.w, pr.h) * 0.92;
+    heartPath(g, pr.x + pr.w / 2, pr.y + pr.h * 0.54, w);
+  }
+  else g.rect(pr.x, pr.y, pr.w, pr.h);
+}
+
+function punchHole(g, h, p) {
+  g.beginPath();
+  if (p.shape === 'circle') g.arc(h.x, h.y, p.r, 0, 6.2832);
+  else if (p.shape === 'square') g.rect(h.x - p.w / 2, h.y - p.w / 2, p.w, p.w);
+  else heartPath(g, h.x, h.y, p.w);
+  g.fill();
+}
+
+// progress<1 为裁切过程;=1 时盖印文字与邮戳。齿孔顺序取 current.holes(支持逆时针)
+function renderStampTo(cv, photoCv, progress, markPos) {
+  var withPrint = progress >= 1;
+  var perf = idOf(PERF_STYLES, settings.perf);
+  var shape = idOf(SHAPES, settings.shape);
+  var win = idOf(WINDOWS, settings.window);
+  cv.width = D.w * D.scale;
+  cv.height = D.h * D.scale;
+  var g = cv.getContext('2d');
+  g.setTransform(D.scale, 0, 0, D.scale, 0, 0);
+  // 外形剪影:纸面+内容都画进剪影
+  g.save();
+  g.beginPath();
+  silhouettePath(g, shape);
+  g.clip();
+  g.fillStyle = idOf(PAPERS, settings.paper).fill;
+  g.fillRect(0, 0, D.w, D.h);
+  var pr = photoRect(shape);
+  g.save();
+  g.beginPath();
+  windowPath(g, win, pr);
+  g.clip();
+  g.drawImage(photoCv, pr.x, pr.y, pr.w, pr.h);
+  g.restore();
+  g.beginPath();
+  windowPath(g, win, pr);
+  g.strokeStyle = 'rgba(0,0,0,.28)';
+  g.lineWidth = 1;
+  g.stroke();
+  drawWear(g, pr, win);
+  if (withPrint) {
+    drawPrint(g, shape);
+    if (settings.mark !== 'none' && markPos) {
+      drawMark(g, markPos, idOf(MARK_STYLES, settings.mark), settings.markSize);
+    }
+  }
+  g.restore();
+  // 齿孔(打穿;落在剪影外的孔自动无效)
+  var holes = current.holes || [];
+  if (perf.id !== 'none') {
+    var count = Math.floor(progress * holes.length + 1e-6);
+    g.globalCompositeOperation = 'destination-out';
+    g.fillStyle = '#000';
+    for (var i = 0; i < count; i++) punchHole(g, holes[i], perf);
+    g.globalCompositeOperation = 'source-over';
+  }
+  return holes;
+}
+
+function renderStamp(photoCv, progress) {
+  return renderStampTo(els.stampCanvas, photoCv, progress, current.markPos);
+}
+
+function drawPrint(g, shape) {
+  var base = D.top + D.ph + shape.dy;
+  var tp = settings.textPos;
+  g.textBaseline = 'alphabetic';
+  current.textBoxes = {};
+  if (shape.lips) { // 唇形票:白字直接印在唇面,居中可拖
+    var lx = D.w / 2 + tp.value.dx, ly = D.h * 0.63 + tp.value.dy;
+    g.save();
+    g.translate(lx, ly);
+    g.rotate(tp.value.rot * Math.PI / 180);
+    g.fillStyle = settings.valueColor || '#fff';
+    g.textAlign = 'center';
+    g.font = '600 ' + Math.round(22 * shape.fs) + 'px ' + KAITI;
+    g.fillText(settings.value, 0, 0);
+    g.font = '600 ' + Math.round(13 * shape.fs) + 'px ' + KAITI;
+    g.fillText(settings.issuer, 0, 22 * shape.fs);
+    if (settings.issuerSub) {
+      g.font = '7px "Times New Roman",Georgia,serif';
+      g.fillText(settings.issuerSub.toUpperCase(), 0, 32 * shape.fs);
+    }
+    g.restore();
+    current.textBoxes.value = { x: lx - 70, y: ly - 22, w: 140, h: 58 };
+    return;
+  }
+  // 面值(左):默认基线已计算避开四周齿孔可及区
+  var vs = Math.round((settings.value.length > 4 ? 16 : 21) * shape.fs);
+  var vx = shape.inset + tp.value.dx, vy = base + 20 * shape.fs + tp.value.dy;
+  g.save();
+  g.translate(vx, vy);
+  g.rotate(tp.value.rot * Math.PI / 180);
+  g.fillStyle = settings.valueColor || '#1c1a17';
+  g.textAlign = 'left';
+  g.font = '600 ' + vs + 'px ' + KAITI;
+  g.fillText(settings.value, 0, 0);
+  var vw2 = g.measureText(settings.value).width;
+  g.restore();
+  current.textBoxes.value = { x: vx - 4, y: vy - 19 * shape.fs, w: vw2 + 10, h: 26 * shape.fs };
+  // 发行方(右,小字随动)
+  var is_ = Math.round((settings.issuer.length > 6 ? 15 : 19) * shape.fs);
+  var ix = D.w - shape.inset + tp.issuer.dx, iy = base + 18 * shape.fs + tp.issuer.dy;
+  g.save();
+  g.translate(ix, iy);
+  g.rotate(tp.issuer.rot * Math.PI / 180);
+  g.fillStyle = '#1c1a17';
+  g.textAlign = 'right';
+  g.font = '600 ' + is_ + 'px ' + KAITI;
+  g.fillText(settings.issuer, 0, 0);
+  var iw = g.measureText(settings.issuer).width;
+  if (settings.issuerSub) {
+    g.font = Math.round(8 * shape.fs) + 'px "Times New Roman",Georgia,serif';
+    g.fillText(settings.issuerSub.toUpperCase(), 0, 13 * shape.fs);
+  }
+  g.restore();
+  current.textBoxes.issuer = { x: ix - iw - 4, y: iy - 17 * shape.fs, w: iw + 10, h: (settings.issuerSub ? 32 : 24) * shape.fs };
+}
+
+function getMarkPos() {
+  var p = idOf(MARK_POS, settings.markPos);
+  if (p.id === 'random') return randMarkPos();
+  if (p.id === 'custom') return current.markPos || randMarkPos();
+  return { x: D.w * p.fx, y: D.top + D.ph * p.fy, rot: p.rot };
+}
+
+function randMarkPos() {
+  return {
+    x: D.w * (0.46 + Math.random() * 0.12),
+    y: D.top + D.ph * (0.16 + Math.random() * 0.12),
+    rot: -0.3 + Math.random() * 0.16
+  };
+}
+
+function dateStr() {
+  var n = new Date();
+  return n.getFullYear() + '.' +
+    String(n.getMonth() + 1).padStart(2, '0') + '.' +
+    String(n.getDate()).padStart(2, '0');
+}
+
+function drawPostmark(g, pos, style, size, alpha) {
+  g.save();
+  g.translate(pos.x, pos.y);
+  g.rotate(pos.rot);
+  g.scale(size, size); // 大小滑杆
+  g.globalAlpha = (alpha === undefined ? 0.52 : alpha);
+  var ds = dateStr();
+  if (style.id === 'heart') {
+    g.strokeStyle = g.fillStyle = '#b5382a';
+    g.lineWidth = 2.4;
+    g.beginPath(); heartPath(g, 0, -4, 112); g.stroke();
+    g.lineWidth = 1.1;
+    g.beginPath(); heartPath(g, 0, -4, 98); g.stroke();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = '700 13px ' + KAITI;
+    g.fillText(ds, 0, 2);
+    g.font = '7px "Times New Roman",Georgia,serif';
+    g.fillText('W I T H  L O V E', 0, 22);
+    for (var k = 0; k < 3; k++) { // 拖尾小爱心
+      g.beginPath(); heartPath(g, 74 + k * 20, -14 + k * 14, 16); g.fill();
+    }
+  } else if (style.id === 'kiss') { // 唇印吻痕:饱满唇形+唇缝+日期
+    g.fillStyle = '#c0294a';
+    g.beginPath(); lipsPath(g, 0, -6, 104, 66); g.fill();
+    g.strokeStyle = 'rgba(96,8,28,.85)';
+    g.lineWidth = 2.6;
+    g.beginPath(); g.moveTo(-45, -6); g.quadraticCurveTo(0, 12, 45, -6); g.stroke();
+    g.fillStyle = '#7a1230';
+    g.font = '700 11px ' + KAITI;
+    g.fillText(ds, 0, 42);
+  } else if (style.id === 'kissx' && kissImg && kissImg.complete && kissImg.naturalWidth) {
+    var kw = 150, kh = kw * kissImg.naturalHeight / kissImg.naturalWidth;
+    g.drawImage(kissImg, -kw / 2, -kh / 2, kw, kh); // 专属吻痕素材
+  } else if (style.id === 'frame') {
+    g.strokeStyle = g.fillStyle = '#26417a';
+    g.lineWidth = 2.2;
+    g.strokeRect(-84, -48, 168, 96);
+    g.lineWidth = 1.1;
+    g.strokeRect(-79, -43, 158, 86);
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = '700 12px ' + KAITI;
+    g.fillText('美好纪念', 0, -25);
+    g.font = '700 14px ' + KAITI;
+    g.fillText(ds, 0, 1);
+    g.font = '7px "Times New Roman",Georgia,serif';
+    g.fillText('C O M M E M O R A T I V E', 0, 26);
+    g.font = '10px serif';
+    g.fillText('✦', -62, 1);
+    g.fillText('✦', 62, 1);
+  } else { // standard 标准日戳
+    var r = 58;
+    g.strokeStyle = g.fillStyle = '#26417a';
+    g.lineWidth = 2.2;
+    g.beginPath(); g.arc(0, 0, r, 0, 6.2832); g.stroke();
+    g.lineWidth = 1.1;
+    g.beginPath(); g.arc(0, 0, r - 6, 0, 6.2832); g.stroke();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = '700 12px ' + KAITI;
+    g.fillText(settings.issuer.slice(0, 6), 0, -22);
+    g.font = '700 13px ' + KAITI;
+    g.fillText(ds, 0, 1);
+    g.font = '8px "Times New Roman",Georgia,serif';
+    g.fillText('L I V E  S T A M P', 0, 21);
+    g.lineWidth = 2;
+    [-12, 0, 12].forEach(function (y0) { // 波浪销戳
+      g.beginPath();
+      for (var x = r + 6; x <= r + 92; x += 4) {
+        var y = y0 + Math.sin((x - r) / 7) * 4.5;
+        if (x === r + 6) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.stroke();
+    });
+  }
+  g.restore();
+  g.globalAlpha = 1;
+}
+
+// 按盖戳力度绘制:精细/重油墨/重复叠印/蹭花模糊
+function drawMark(g, pos, style, size) {
+  var ink = settings.markInk;
+  if (ink === 'blur') {
+    g.save();
+    g.filter = 'blur(2.5px)';
+    drawPostmark(g, pos, style, size, 0.5);
+    g.restore();
+  } else if (ink === 'ink') {
+    drawPostmark(g, pos, style, size, 0.78);
+    drawPostmark(g, { x: pos.x + 2.5, y: pos.y + 2, rot: pos.rot + 0.015 }, style, size, 0.35);
+  } else if (ink === 'repeat') {
+    var dup = pos.dup || [{ dx: -13, dy: 8, rot: 0.09 }, { dx: 10, dy: -7, rot: -0.07 }];
+    dup.forEach(function (j) {
+      drawPostmark(g, { x: pos.x + j.dx, y: pos.y + j.dy, rot: pos.rot + j.rot }, style, size, 0.34);
+    });
+  } else drawPostmark(g, pos, style, size, 0.52);
+}
+
+/* 做旧质感:划痕/折痕/褪色/污渍(同一枚内图案稳定,不随重绘抖动) */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    var t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function makeWear(seed) {
+  var rnd = mulberry32(seed);
+  function R(a, b) { return a + (b - a) * rnd(); }
+  var sc = [], fo = [], st = [], i;
+  for (i = 0; i < 5; i++) sc.push({ x1: R(0, 1), y1: R(0, 1), x2: R(0, 1), y2: R(0, 1), w: R(0.7, 2.2), a: R(0.14, 0.38), dark: rnd() < 0.4 });
+  for (i = 0; i < 2; i++) fo.push({ vert: rnd() < 0.5, p: R(0.25, 0.75), a: R(0.10, 0.2) });
+  for (i = 0; i < 2; i++) st.push({ x: R(0.15, 0.85), y: R(0.15, 0.85), rx: R(0.06, 0.16), ry: R(0.04, 0.12), rot: R(-1, 1) });
+  return { scratches: sc, folds: fo, stains: st };
+}
+function drawWear(g, pr, win) {
+  var f = current.fx, wear = settings.wear;
+  if (!f || !wear.length) return;
+  function X(u) { return pr.x + u * pr.w; }
+  function Y(u) { return pr.y + u * pr.h; }
+  if (wear.indexOf('fade') >= 0) {
+    g.save();
+    g.beginPath(); windowPath(g, win, pr); g.clip();
+    g.fillStyle = 'rgba(246,240,224,.22)';
+    g.fillRect(pr.x - 2, pr.y - 2, pr.w + 4, pr.h + 4);
+    g.restore();
+  }
+  if (wear.indexOf('scratch') >= 0) f.scratches.forEach(function (s) {
+    g.save();
+    g.strokeStyle = s.dark ? 'rgba(28,18,8,' + s.a + ')' : 'rgba(255,255,255,' + s.a + ')';
+    g.lineWidth = s.w;
+    g.beginPath(); g.moveTo(X(s.x1), Y(s.y1)); g.lineTo(X(s.x2), Y(s.y2)); g.stroke();
+    g.restore();
+  });
+  if (wear.indexOf('fold') >= 0) f.folds.forEach(function (fd) { // 折痕横穿整张票:暗线+受光亮边
+    g.save();
+    var m = fd.vert
+      ? { x1: X(fd.p), y1: pr.y - 14, x2: X(fd.p), y2: pr.y + pr.h + 14 }
+      : { x1: pr.x - 14, y1: Y(fd.p), x2: pr.x + pr.w + 14, y2: Y(fd.p) };
+    g.strokeStyle = 'rgba(22,14,6,' + fd.a + ')';
+    g.lineWidth = 2.2;
+    g.beginPath(); g.moveTo(m.x1, m.y1); g.lineTo(m.x2, m.y2); g.stroke();
+    g.strokeStyle = 'rgba(255,255,255,.28)';
+    g.lineWidth = 1;
+    g.beginPath();
+    if (fd.vert) { g.moveTo(m.x1 + 2, m.y1); g.lineTo(m.x2 + 2, m.y2); }
+    else { g.moveTo(m.x1, m.y1 + 2); g.lineTo(m.x2, m.y2 + 2); }
+    g.stroke();
+    g.restore();
+  });
+  if (wear.indexOf('stain') >= 0) f.stains.forEach(function (s) {
+    g.save();
+    g.translate(X(s.x), Y(s.y));
+    g.rotate(s.rot);
+    g.fillStyle = 'rgba(140,105,58,.15)';
+    g.beginPath(); g.ellipse(0, 0, s.rx * pr.w, s.ry * pr.h, 0, 0, 6.2832); g.fill();
+    g.restore();
+  });
+}
+function stampSprite(markPosOverride) {
+  var t = document.createElement('canvas');
+  renderStampTo(t, current.photo, 1, markPosOverride || randMarkPos());
+  return t;
+}
+
+function drawRotated(g, img, cx, cy, w, h, deg) {
+  g.save();
+  g.translate(cx, cy);
+  g.rotate(deg * Math.PI / 180);
+  g.shadowColor = 'rgba(60,45,15,.3)';
+  g.shadowBlur = 16;
+  g.shadowOffsetY = 8;
+  g.drawImage(img, -w / 2, -h / 2, w, h);
+  g.restore();
+}
+
+function wrapText(g, text, x, y, maxW, lh) {
+  var line = '', yy = y;
+  for (var i = 0; i < text.length; i++) {
+    var test = line + text[i];
+    if (g.measureText(test).width > maxW && line) { g.fillText(line, x, yy); line = text[i]; yy += lh; }
+    else line = test;
+  }
+  if (line) g.fillText(line, x, yy);
+}
+
+function dashLine(g, x1, y1, x2, y2) {
+  g.save();
+  g.strokeStyle = '#b9a87f';
+  g.lineWidth = 2;
+  g.setLineDash([12, 10]);
+  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+  g.restore();
+}
+
+function renderProduct() {
+  var cv = els.stampCanvas;
+  var dims = { postcard: [1050, 680], fdc: [1050, 680], polaroid: [900, 1120] }[settings.product];
+  if (!dims || !current.photo) return;
+  cv.width = dims[0] * D.scale;
+  cv.height = dims[1] * D.scale;
+  var g = cv.getContext('2d');
+  g.setTransform(D.scale, 0, 0, D.scale, 0, 0);
+  if (settings.product === 'postcard') drawPostcard(g);
+  else if (settings.product === 'fdc') drawFDC(g);
+  else drawPolaroid(g);
+}
+
+function drawPostcard(g) {
+  g.fillStyle = '#fbf6ea'; g.fillRect(0, 0, 1050, 680);
+  g.strokeStyle = '#d8cbae'; g.lineWidth = 3; g.strokeRect(14, 14, 1022, 652);
+  // 左:留言
+  g.fillStyle = '#3a3630'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.font = '30px ' + KAITI;
+  wrapText(g, settings.cardMsg, 70, 130, 470, 60);
+  // 中:分隔虚线
+  dashLine(g, 600, 70, 600, 610);
+  // 右上:邮票 + 日戳压角
+  drawRotated(g, stampSprite(), 830, 180, 250, 333, 4);
+  drawMark(g, { x: 738, y: 300, rot: -0.2 }, idOf(MARK_STYLES, "standard"), 0.6);
+  // 右下:三行地址线
+  g.font = '20px ' + KAITI; g.fillStyle = '#8b7f66';
+  g.fillText('收件人', 660, 392);
+  g.fillText('地　址', 660, 482);
+  g.fillText('寄　自', 660, 572);
+  dashLine(g, 760, 400, 990, 400);
+  dashLine(g, 760, 490, 990, 490);
+  dashLine(g, 760, 580, 990, 580);
+  // 左下:落款
+  g.fillStyle = '#8b7f66';
+  g.font = '26px ' + KAITI;
+  g.fillText('把美好邮给你 · ' + dateStr(), 70, 620);
+}
+
+function drawFDC(g) {
+  g.fillStyle = '#f8f0dd'; g.fillRect(0, 0, 1050, 680);
+  g.strokeStyle = '#e4d6b8'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(0, 0); g.lineTo(525, 300); g.lineTo(1050, 0); g.stroke(); // 信封盖
+  g.globalAlpha = .5;
+  g.beginPath(); g.moveTo(0, 680); g.lineTo(525, 430); g.lineTo(1050, 680); g.stroke();
+  g.globalAlpha = 1;
+  // 左:首日封字样
+  g.fillStyle = '#3a3630'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.font = '700 64px ' + KAITI;
+  g.fillText('首 日 封', 90, 270);
+  g.font = '22px "Times New Roman",Georgia,serif';
+  g.fillText('F I R S T  D A Y  C O V E R', 92, 312);
+  g.font = '32px ' + KAITI;
+  g.fillText(dateStr(), 92, 380);
+  g.font = '36px ' + KAITI;
+  g.fillText(settings.issuer, 92, 448);
+  g.fillStyle = '#8b7f66'; g.font = '26px ' + KAITI;
+  g.fillText('把美好邮给你', 92, 500);
+  // 右:邮票 + 首日纪念戳压角
+  drawRotated(g, stampSprite(), 830, 185, 255, 340, -3);
+  drawMark(g, { x: 735, y: 305, rot: -0.15 }, idOf(MARK_STYLES, "standard"), 0.95);
+}
+
+function drawPolaroid(g) {
+  g.fillStyle = '#fcfcf8'; g.fillRect(0, 0, 900, 1120);
+  g.strokeStyle = '#e8e4da'; g.lineWidth = 2; g.strokeRect(6, 6, 888, 1108);
+  g.drawImage(current.photo, 90, 80, 720, 960);
+  // 底部手写留言带 + 右下贴一枚小邮票
+  g.fillStyle = '#3a3630'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.font = '42px ' + KAITI;
+  var msg = settings.cardMsg.length > 13 ? settings.cardMsg.slice(0, 13) + '…' : settings.cardMsg;
+  g.fillText(msg, 90, 1092);
+  drawRotated(g, stampSprite(), 760, 1000, 150, 200, 7);
+}
+
+function composeSheetTo(cv) {
+  cv.width = 1000 * D.scale;
+  cv.height = 1300 * D.scale;
+  var g = cv.getContext('2d');
+  g.setTransform(D.scale, 0, 0, D.scale, 0, 0);
+  g.fillStyle = idOf(PAPERS, settings.paper).fill;
+  g.fillRect(0, 0, 1000, 1300);
+  g.fillStyle = '#1c1a17'; g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+  g.font = '700 44px ' + KAITI;
+  g.fillText(settings.issuer + ' · 整版', 500, 100);
+  g.fillStyle = '#8b7f66'; g.font = '22px "Times New Roman",Georgia,serif';
+  g.fillText('S H E E T  O F  F O U R · ' + dateStr(), 500, 138);
+  var rots = [-2, 2, 1.5, -1.5];
+  var pos = [[95, 175], [525, 175], [95, 715], [525, 715]];
+  for (var i = 0; i < current.batch.length && i < 4; i++) {
+    var sp = document.createElement('canvas');
+    renderStampTo(sp, current.batch[i], 1, randMarkPos());
+    drawRotated(g, sp, pos[i][0] + 190, pos[i][1] + 253, 380, 507, rots[i]);
+  }
+  g.fillStyle = '#8b7f66'; g.font = '26px ' + KAITI;
+  g.fillText('把美好邮给你', 500, 1268);
+}
+
+/* ============ 裁切动画 ============ */
+var current = { photo: null, saved: false, markPos: null, holes: [], batch: [], view: 'stamp' };
+
+function beginStamp(photoCv) {
+  current.photo = photoCv;
+  current.saved = false;
+  current.view = 'stamp';
+  settings.stampAngle = 0;
+  applyStampAngle();
+  if (settings.shootMode === 'sheet4') {
+    current.batch.push(photoCv);
+    if (current.batch.length > 4) current.batch.shift(); // ponytail: 超过4张丢最旧,整版永远取最近4张
+  }
+  current.markPos = getMarkPos();
+  current.fx = makeWear((Math.random() * 1e9) | 0);
+  closeDrawer();
+  show(els.stampScreen);
+  els.stampActions.classList.remove('show');
+  els.stampHint.textContent = '✂ 裁切中…';
+  els.stampCanvas.classList.remove('thump');
+  els.saveBtn.disabled = false;
+  var perf = idOf(PERF_STYLES, settings.perf);
+  var cut = idOf(CUT_MODES, settings.cut);
+  current.holes = (perf.id === 'none') ? [] : perforationPath(D.w, D.h, perf.gap);
+  if (cut.rev) current.holes = current.holes.slice().reverse();
+  renderStamp(photoCv, 0);
+  if (!current.holes.length || cut.dur === 0) {
+    finishCut();
+    return;
+  }
+  els.cutter.classList.remove('hidden');
+  var n = current.holes.length;
+  var t0 = performance.now(), DUR = cut.dur;
+  // ponytail: 用 setInterval 而非 rAF——WebView 切后台时 rAF 停转,裁切会永久卡住;interval 慢但保证走完。
+  var timer = setInterval(function () {
+    var p = Math.min(1, (performance.now() - t0) / DUR);
+    var holes = renderStamp(photoCv, p);
+    placeCutter(holes[Math.min(n - 1, Math.floor(p * n))]);
+    if (p >= 1) { clearInterval(timer); finishCut(); }
+  }, 16);
+}
+
+function placeCutter(h) {
+  var rect = els.stampCanvas.getBoundingClientRect();
+  var k = rect.width / D.w;
+  els.cutter.style.left = h.x * k + 'px';
+  els.cutter.style.top = h.y * k + 'px';
+}
+
+function finishCut() {
+  els.cutter.classList.add('hidden');
+  // 四连张:未满 4 张自动回取景器继续拍;满 4 张合成整版
+  if (settings.shootMode === 'sheet4') {
+    var n = current.batch.length;
+    if (n < 4) {
+      renderStamp(current.photo, 1);
+      thumpShow('✂ 已收 ' + n + '/4 · 回取景器继续拍');
+      els.stampActions.classList.remove('show');
+      setTimeout(function () {
+        if (current.view === 'stamp' && !els.stampScreen.classList.contains('hidden')) show(els.camScreen);
+      }, 1500);
+      return;
+    }
+    current.view = 'sheet';
+    rerender();
+    thumpShow('✂ 整版完成 · 可收藏/下载/分享');
+    return;
+  }
+  renderStamp(current.photo, 1);
+  thumpShow('✂ ' + settings.issuer + ' · 点改文字/齿孔/邮戳 · 邮戳可拖动');
+  // 纸品:先看落章,再变卡片
+  if (settings.product !== 'stamp') {
+    current.view = 'product';
+    var p = idOf(PRODUCTS, settings.product);
+    els.stampHint.textContent = '✂ ' + p.name.split(' ').pop() + '已生成 · 纸品区可切回单枚';
+    setTimeout(renderProduct, 600);
+  }
+}
+
+function thumpShow(hint) {
+  void els.stampCanvas.offsetWidth; // 重置动画
+  els.stampCanvas.classList.add('thump');
+  els.stampHint.textContent = hint;
+  els.saveBtn.disabled = false;
+  els.stampActions.classList.add('show');
+}
+
+// 定制变更后的整体重绘(不重播裁切)
+function rerender() {
+  if (!current.photo) return;
+  if (current.view === 'sheet') composeSheetTo(els.stampCanvas);
+  else if (current.view === 'product' && settings.product !== 'stamp') renderProduct();
+  else {
+    current.view = 'stamp';
+    renderStamp(current.photo, 1);
+    if (els.stampActions.classList.contains('show')) {
+      els.stampHint.textContent = '✂ ' + settings.issuer + ' · 点改文字/齿孔/邮戳 · 邮戳可拖动';
+    }
+  }
+}
+
+/* ============ 相机 ============ */
+var stream = null, facing = 'environment';
+
+async function restart(want) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+  try {
+    var s = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: want, width: { ideal: 1280 }, height: { ideal: 1280 } },
+      audio: false
+    });
+    if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+    stream = s;
+    facing = want;
+    els.video.srcObject = s;
+    els.video.classList.toggle('mirrored', want === 'user');
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function startCamera() {
+  if (!(await restart(facing))) toast('相机不可用,点击左下角用相片做邮票');
+}
+
+/* 画面全黑提示:流健康但亮度接近 0,多半是镜头被挡或朝下 */
+function watchDarkness() {
+  var c = document.createElement('canvas');
+  c.width = 32; c.height = 43;
+  var g = c.getContext('2d');
+  var dark = 0, warned = false;
+  setInterval(function () {
+    if (els.camScreen.classList.contains('hidden') || !els.video.videoWidth) { dark = 0; return; }
+    try {
+      g.drawImage(els.video, 0, 0, 32, 43);
+      var d = g.getImageData(0, 0, 32, 43).data;
+      var s = 0;
+      for (var i = 0; i < d.length; i += 4) s += d[i] + d[i+1] + d[i+2];
+      dark = (s / (d.length / 4) / 3) < 4 ? dark + 1 : 0;
+      if (dark >= 4 && !warned) { warned = true; toast('画面很黑,镜头可能被挡住或朝下了'); }
+      if (dark === 0) warned = false;
+    } catch (e) {}
+  }, 2000);
+}
+
+function shutter() {
+  if (!els.video.videoWidth) { toast('相机没准备好,试试左下角导入照片'); return; }
+  els.flash.classList.remove('on');
+  void els.flash.offsetWidth;
+  els.flash.classList.add('on');
+  beginStamp(processPhoto(grabFrame(els.video, els.video.videoWidth, els.video.videoHeight, facing === 'user')));
+}
+
+/* 定时拍摄:倒计时结束自动快门 */
+var counting = false;
+function handleShutter() {
+  if (counting) return;
+  if (settings.timer > 0) runCountdown(settings.timer, shutter);
+  else shutter();
+}
+function runCountdown(sec, done) {
+  counting = true;
+  var n = sec;
+  els.countdown.classList.remove('hidden');
+  (function tick() {
+    if (n <= 0) {
+      els.countdown.classList.add('hidden');
+      counting = false;
+      done();
+      return;
+    }
+    els.countdown.innerHTML = '<span>' + n + '</span>';
+    n--;
+    setTimeout(tick, 1000);
+  })();
+}
+
+/* ============ 邮册 ============ */
+var ALBUM_KEY = 'stampAlbumV1';
+var album = [];
+try { album = JSON.parse(localStorage.getItem(ALBUM_KEY)) || []; } catch (e) { album = []; }
+
+// ponytail: 整册存 localStorage(≈5MB,单枚约 150KB);超限就提示清理,升级路径是 IndexedDB 存 Blob。
+function persist() {
+  try {
+    localStorage.setItem(ALBUM_KEY, JSON.stringify(album));
+    return true;
+  } catch (e) {
+    toast('邮册满了,删几枚旧邮票吧');
+    return false;
+  }
+}
+
+function updateBadge() {
+  els.albumBadge.textContent = album.length;
+  els.albumBadge.classList.toggle('hidden', !album.length);
+}
+
+function renderAlbum() {
+  els.albumGrid.innerHTML = '';
+  album.forEach(function (st) {
+    var cell = document.createElement('div');
+    cell.className = 'cell';
+    var img = document.createElement('img');
+    img.src = st.img;
+    img.alt = '邮票';
+    img.addEventListener('click', function () { openViewer(st); });
+    cell.appendChild(img);
+    els.albumGrid.appendChild(cell);
+  });
+  els.albumEmpty.classList.toggle('hidden', album.length > 0);
+  els.albumCount2.textContent = album.length ? '(' + album.length + ')' : '';
+}
+
+function composeStoreJpeg() {
+  return composeOutput().toDataURL('image/jpeg', 0.82);
+}
+
+function flyToAlbum(src) {
+  var r = els.stampCanvas.getBoundingClientRect();
+  var img = document.createElement('img');
+  img.src = src;
+  img.style.cssText =
+    'position:fixed;z-index:40;left:' + r.left + 'px;top:' + r.top + 'px;' +
+    'width:' + r.width + 'px;height:' + r.height + 'px;border-radius:3px;' +
+    'transform-origin:top left;pointer-events:none;' +
+    'transition:transform .7s cubic-bezier(.5,-.1,.75,.4),opacity .7s';
+  document.body.appendChild(img);
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      img.style.transform = 'translate(' + (18 - r.left) + 'px,' + (18 - r.top) + 'px) scale(.05)';
+      img.style.opacity = '.25';
+    });
+  });
+  setTimeout(function () { img.remove(); }, 780);
+}
+
+function saveStamp() {
+  if (current.saved || !current.photo) return;
+  var item = {
+    id: Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+    img: composeStoreJpeg(),
+    date: new Date().toISOString()
+  };
+  album.unshift(item);
+  if (!persist()) { album.shift(); return; }
+  current.saved = true;
+  els.saveBtn.disabled = true;
+  flyToAlbum(item.img);
+  toast('已把美好收进邮册 📮');
+  updateBadge();
+  setTimeout(function () {
+    if (current.view === 'sheet') current.batch = [];
+    show(els.camScreen);
+  }, 950);
+}
+
+/* ============ 下载 ============ */
+function download(url, name) {
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+function filePrefix() {
+  if (current.view === 'sheet') return '整版';
+  if (current.view === 'product') return { postcard: '明信片', fdc: '首日封', polaroid: '拍立得' }[settings.product] || '纸品';
+  return '邮票';
+}
+// 输出合成:垫上邮册底色,并把票体旋转角烘焙进位图
+function composeOutput() {
+  var src = els.stampCanvas;
+  var a = (current.view === 'stamp' ? (settings.stampAngle || 0) : 0) * Math.PI / 180;
+  var c = document.createElement('canvas'), g;
+  if (!a) {
+    c.width = src.width; c.height = src.height;
+    g = c.getContext('2d');
+    g.fillStyle = '#f3ecdd';
+    g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(src, 0, 0);
+    return c;
+  }
+  var w = src.width, h = src.height;
+  c.width = Math.round(Math.abs(w * Math.cos(a)) + Math.abs(h * Math.sin(a)));
+  c.height = Math.round(Math.abs(w * Math.sin(a)) + Math.abs(h * Math.cos(a)));
+  g = c.getContext('2d');
+  g.fillStyle = '#f3ecdd';
+  g.fillRect(0, 0, c.width, c.height);
+  g.translate(c.width / 2, c.height / 2);
+  g.rotate(a);
+  g.drawImage(src, -w / 2, -h / 2);
+  return c;
+}
+function ts() {
+  return new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+}
+
+/* ============ 分享 ============ */
+function canvasBlob(cv) {
+  return new Promise(function (res) { cv.toBlob(res, 'image/png'); });
+}
+function dataURLBlob(url) {
+  var p = url.split(','), mime = p[0].match(/:(.*?);/)[1], bin = atob(p[1]);
+  var u8 = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return new Blob([u8], { type: mime });
+}
+// 带图系统分享 → 纯文本系统分享 → 复制图片到剪贴板,逐级兜底
+async function shareImage(blob, name) {
+  var title = settings.issuer || '邮票相机';
+  var text = '把美好邮给你 📮';
+  if (blob) {
+    try {
+      var file = new File([blob], name, { type: blob.type });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: title, text: text });
+        return;
+      }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  if (navigator.share) {
+    try { await navigator.share({ title: title, text: text }); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  try {
+    await navigator.clipboard.write([new ClipboardItem((function () { var o = {}; o[blob.type] = blob; return o; })())]);
+    toast('已复制邮票,去粘贴给朋友吧');
+  } catch (e) {
+    toast('此环境不支持分享,请用下载');
+  }
+}
+
+/* ============ 查看大图 ============ */
+var viewing = null;
+function openViewer(st) {
+  viewing = st;
+  els.viewerImg.src = st.img;
+  els.viewer.classList.remove('hidden');
+}
+function closeViewer() {
+  els.viewer.classList.add('hidden');
+  viewing = null;
+}
+
+/* ============ 定制抽屉 ============ */
+function openDrawer(focus) {
+  els.drawer.classList.add('open');
+  if (focus === 'value' || focus === 'issuer') {
+    setTimeout(function () {
+      (focus === 'value' ? els.valueInput : els.issuerInput).focus();
+    }, 300);
+  }
+}
+function closeDrawer() {
+  els.drawer.classList.remove('open');
+}
+
+function chip(label, on, onClick) {
+  var b = document.createElement('button');
+  b.className = 'chip' + (on ? ' on' : '');
+  b.textContent = label;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function chipsRow(el, items, onFn, pickFn) {
+  el.innerHTML = '';
+  items.forEach(function (it) {
+    el.appendChild(chip(it.name, onFn(it), function () { pickFn(it); }));
+  });
+}
+
+/* 外观即时生效 */
+function applyBackdrop() {
+  var b = idOf(BACKDROPS, settings.backdrop);
+  els.stampScreen.style.background = b.css;
+  els.stampScreen.classList.toggle('dark-bg', !!b.dark);
+}
+function applyShutter() {
+  var s = idOf(SHUTTER_STYLES, settings.shutter);
+  els.shutterBtn.className = 'shutter ' + (s.cls || '');
+  els.shutterBtn.innerHTML = s.inner || '';
+}
+function applyStampSize() {
+  var k = idOf(SIZE_PRESETS, settings.stampSize).k;
+  els.stampCanvas.style.height = k === 1 ? '' : 'calc(min(56vh, 500px) * ' + k + ')';
+}
+function applyVideoFilter() {
+  els.video.style.filter = idOf(BEAUTY, settings.beauty).css;
+}
+function applyVisual() {
+  applyBackdrop();
+  applyShutter();
+  applyStampSize();
+  applyVideoFilter();
+}
+
+function applyTemplate(t) {
+  settings.tplId = t.id;
+  settings.issuer = t.issuer;
+  settings.issuerSub = t.issuerSub;
+  settings.value = t.value;
+  settings.valueColor = t.valueColor;
+  ['paper', 'backdrop', 'shape', 'window', 'perf', 'cut', 'mark', 'shutter'].forEach(function (k) { settings[k] = t[k]; });
+  applyStyleCommon();
+}
+function applyStyle(s) {
+  settings.styleId = s.id;
+  ['paper', 'backdrop', 'shape', 'window', 'perf', 'cut', 'mark', 'shutter'].forEach(function (k) { settings[k] = s[k]; });
+  applyStyleCommon();
+}
+function applyStyleCommon() {
+  current.markPos = getMarkPos();
+  els.valueInput.value = settings.value;
+  els.issuerInput.value = settings.issuer;
+  els.issuerSubInput.value = settings.issuerSub;
+  applyVisual();
+  rerender();
+  buildChips();
+}
+
+function buildChips() {
+  chipsRow(els.tplChips, TEMPLATES, function (t) { return t.id === settings.tplId; }, applyTemplate);
+  chipsRow(els.styleChips, STYLES, function (s) { return s.id === settings.styleId; }, applyStyle);
+  chipsRow(els.shutterChips, SHUTTER_STYLES, function (s) { return s.id === settings.shutter; }, function (s) {
+    settings.shutter = s.id; applyShutter(); buildChips();
+  });
+  chipsRow(els.beautyChips, BEAUTY, function (b) { return b.id === String(settings.beauty) || b.id == settings.beauty; }, function (b) {
+    settings.beauty = +b.id; applyVideoFilter(); buildChips();
+  });
+  chipsRow(els.blurChips, BLUR_BG, function (b) { return b.id === String(settings.blurBg) || b.id == settings.blurBg; }, function (b) {
+    settings.blurBg = +b.id; buildChips();
+  });
+  chipsRow(els.modeChips, SHOOT_MODES, function (m) { return m.id === settings.shootMode; }, function (m) {
+    settings.shootMode = m.id;
+    current.batch = [];
+    if (m.id === 'single' && current.view === 'sheet') current.view = 'stamp';
+    rerender(); buildChips();
+  });
+  chipsRow(els.productChips, PRODUCTS, function (p) { return p.id === settings.product; }, function (p) {
+    settings.product = p.id;
+    if (current.view !== 'sheet') { // 整版视图下换纸品不抢屏,下一枚生效
+      current.view = (settings.product === 'stamp') ? 'stamp' : 'product';
+    }
+    rerender(); buildChips();
+    toast(p.name);
+  });
+  chipsRow(els.stickerChips, STICKERS, function (s) { return settings.stickers.indexOf(s.id) >= 0; }, function (s) {
+    var i = settings.stickers.indexOf(s.id);
+    if (i >= 0) settings.stickers.splice(i, 1); else settings.stickers.push(s.id);
+    buildChips();
+  });
+  chipsRow(els.valueChips, VALUE_PRESETS.map(function (v) { return { id: v, name: v }; }), function (v) { return v.id === settings.value; }, function (v) {
+    settings.value = v.id; els.valueInput.value = v.id; rerender(); buildChips();
+  });
+  chipsRow(els.paperChips, PAPERS, function (p) { return p.id === settings.paper; }, function (p) {
+    settings.paper = p.id; rerender(); buildChips();
+  });
+  chipsRow(els.backdropChips, BACKDROPS, function (b) { return b.id === settings.backdrop; }, function (b) {
+    settings.backdrop = b.id; applyBackdrop(); buildChips();
+  });
+  chipsRow(els.shapeChips, SHAPES, function (s) { return s.id === settings.shape; }, function (s) {
+    settings.shape = s.id; current.markPos = getMarkPos(); rerender(); buildChips();
+  });
+  chipsRow(els.windowChips, WINDOWS, function (w) { return w.id === settings.window; }, function (w) {
+    settings.window = w.id; rerender(); buildChips();
+  });
+  chipsRow(els.perfChips, PERF_STYLES, function (p) { return p.id === settings.perf; }, function (p) {
+    settings.perf = p.id;
+    var perf = idOf(PERF_STYLES, settings.perf);
+    var cut = idOf(CUT_MODES, settings.cut);
+    current.holes = (perf.id === 'none') ? [] : perforationPath(D.w, D.h, perf.gap);
+    if (cut.rev) current.holes = current.holes.slice().reverse();
+    rerender(); buildChips();
+    toast('齿孔 · ' + p.name);
+  });
+  chipsRow(els.cutChips, CUT_MODES, function (c) { return c.id === settings.cut; }, function (c) {
+    settings.cut = c.id; buildChips();
+  });
+  chipsRow(els.sizeChips, SIZE_PRESETS, function (s) { return s.id === settings.stampSize; }, function (s) {
+    settings.stampSize = s.id; applyStampSize(); buildChips();
+  });
+  chipsRow(els.markChips, MARK_STYLES, function (m) { return m.id === settings.mark; }, function (m) {
+    settings.mark = m.id;
+    if (m.id !== 'none') current.markPos = getMarkPos();
+    rerender(); buildChips();
+    toast('邮戳 · ' + m.name);
+  });
+  chipsRow(els.markPosChips, MARK_POS, function (p) { return p.id === settings.markPos; }, function (p) {
+    settings.markPos = p.id;
+    current.markPos = getMarkPos();
+    rerender(); buildChips();
+  });
+  chipsRow(els.markInkChips, MARK_INK, function (m) { return m.id === settings.markInk; }, function (m) {
+    settings.markInk = m.id;
+    rerender(); buildChips();
+    toast('盖戳 · ' + m.name);
+  });
+  chipsRow(els.wearChips, WEAR, function (w) { return settings.wear.indexOf(w.id) >= 0; }, function (w) {
+    var i = settings.wear.indexOf(w.id);
+    if (i >= 0) settings.wear.splice(i, 1); else settings.wear.push(w.id);
+    rerender(); buildChips();
+  });
+  chipsRow(els.textSelChips, [{ id: 'value', name: '面值' }, { id: 'issuer', name: '发行方' }], function (t) { return t.id === settings.textSel; }, function (t) {
+    settings.textSel = t.id;
+    syncTextAngle();
+    buildChips();
+  });
+}
+
+/* 点邮票直改:底部文字带=选中/改文字,边缘齿孔=换齿孔,邮戳圈内=换邮戳(拖动后的松手不算;仅单枚视图) */
+var suppressClick = false;
+els.stampCanvas.addEventListener('click', function (e) {
+  if (suppressClick) { suppressClick = false; return; }
+  if (!current.photo || current.view !== 'stamp' || !els.stampActions.classList.contains('show')) return;
+  var p = stampPoint(e), x = p.x, y = p.y;
+  var band = D.top + D.ph;
+  if (y >= band && y <= D.h - 15) {
+    settings.textSel = x < D.w / 2 ? 'value' : 'issuer';
+    syncTextAngle();
+    buildChips();
+    openDrawer(settings.textSel);
+    return;
+  }
+  if (x <= 24 || x >= D.w - 24 || y <= 24 || y >= D.h - 24) {
+    cyclePerf();
+    return;
+  }
+  var m = current.markPos;
+  if (settings.mark !== 'none' && m && Math.hypot(x - m.x, y - m.y) < 70) {
+    cycleMark();
+  }
+});
+
+/* 按住交互:邮戳拖动(可拖出票边)/文字拖动/票体按住旋转;轻点仍是切换样式 */
+var drag = null;
+function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+function applyStampAngle() {
+  els.stampCanvas.style.transform = settings.stampAngle ? 'rotate(' + settings.stampAngle + 'deg)' : '';
+}
+// 屏幕坐标 → 邮票设计坐标(抵消票体旋转)
+function stampPoint(e) {
+  var el = els.stampCanvas, r = el.getBoundingClientRect();
+  var k = el.offsetWidth / D.w; // offsetWidth 不受 transform 影响
+  var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  var dx = (e.clientX - cx) / k, dy = (e.clientY - cy) / k;
+  var a = -(settings.stampAngle || 0) * Math.PI / 180;
+  return {
+    x: dx * Math.cos(a) - dy * Math.sin(a) + D.w / 2,
+    y: dx * Math.sin(a) + dy * Math.cos(a) + D.h / 2
+  };
+}
+function textAt(p) { // 命中面值/发行方文字框
+  var b = current.textBoxes || {};
+  for (var k in b) {
+    var t = b[k];
+    if (p.x >= t.x && p.x <= t.x + t.w && p.y >= t.y && p.y <= t.y + t.h) return k;
+  }
+  return null;
+}
+
+els.stampCanvas.addEventListener('pointerdown', function (e) {
+  if (!current.photo || current.view !== 'stamp' || !els.stampActions.classList.contains('show')) return;
+  var p = stampPoint(e), m = current.markPos;
+  var mode = 'none', tx = null;
+  if (settings.mark !== 'none' && m && Math.hypot(p.x - m.x, p.y - m.y) < 95) mode = 'mark';
+  else { tx = textAt(p); if (tx) mode = 'text'; }
+  if (mode === 'none') {
+    var edge = p.x <= 24 || p.x >= D.w - 24 || p.y <= 24 || p.y >= D.h - 24;
+    if (edge) return; // 齿孔环交给 click 循环换样式
+    mode = 'rotate';  // 其余区域:按住拖动=旋转整票
+  }
+  drag = {
+    id: e.pointerId, mode: mode, moved: false, sx: p.x, sy: p.y, tx: tx,
+    mdx: mode === 'mark' ? m.x - p.x : 0, mdy: mode === 'mark' ? m.y - p.y : 0,
+    bdx: mode === 'text' ? settings.textPos[tx].dx : 0,
+    bdy: mode === 'text' ? settings.textPos[tx].dy : 0,
+    a0: Math.atan2(p.y - D.h / 2, p.x - D.w / 2), ang0: settings.stampAngle
+  };
+  try { els.stampCanvas.setPointerCapture(e.pointerId); } catch (err) {}
+  e.preventDefault();
+});
+els.stampCanvas.addEventListener('pointermove', function (e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  var p = stampPoint(e);
+  if (drag.mode === 'mark') {
+    // 允许把戳拖出票边:只露出一角,靠剪影裁掉界外部分
+    var nx = clamp(p.x + drag.mdx, -60, D.w + 60);
+    var ny = clamp(p.y + drag.mdy, -60, D.h + 60);
+    if (!drag.moved && Math.hypot(nx - current.markPos.x, ny - current.markPos.y) > 3) drag.moved = true;
+    current.markPos.x = nx; current.markPos.y = ny;
+    if (drag.moved) rerender();
+  } else if (drag.mode === 'text') {
+    var t = settings.textPos[drag.tx];
+    t.dx = clamp(drag.bdx + (p.x - drag.sx), -150, D.w);
+    t.dy = clamp(drag.bdy + (p.y - drag.sy), -150, D.h);
+    if (!drag.moved && Math.hypot(t.dx - drag.bdx, t.dy - drag.bdy) > 4) drag.moved = true;
+    if (drag.moved) rerender();
+  } else if (drag.mode === 'rotate') {
+    var a = Math.atan2(p.y - D.h / 2, p.x - D.w / 2);
+    var deg = drag.ang0 + (a - drag.a0) * 180 / Math.PI;
+    if (!drag.moved && Math.abs(deg - drag.ang0) > 1.5) drag.moved = true;
+    settings.stampAngle = Math.round(deg * 10) / 10;
+    applyStampAngle();
+  }
+});
+function endDrag(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  var moved = drag.moved, mode = drag.mode;
+  drag = null;
+  if (moved) {
+    suppressClick = true; // 拖完松手不触发点击切换
+    if (mode === 'mark') { settings.markPos = 'custom'; buildChips(); }
+  } else if (mode === 'rotate') suppressClick = true;
+}
+els.stampCanvas.addEventListener('pointerup', endDrag);
+els.stampCanvas.addEventListener('pointercancel', endDrag);
+
+function cyclePerf() {
+  var i = PERF_STYLES.findIndex(function (p) { return p.id === settings.perf; });
+  var p = PERF_STYLES[(i + 1) % PERF_STYLES.length];
+  settings.perf = p.id;
+  var perf = idOf(PERF_STYLES, settings.perf);
+  current.holes = (perf.id === 'none') ? [] : perforationPath(D.w, D.h, perf.gap);
+  rerender();
+  buildChips();
+  toast('齿孔 · ' + p.name);
+}
+
+function cycleMark() {
+  var i = MARK_STYLES.findIndex(function (m) { return m.id === settings.mark; });
+  var m = MARK_STYLES[(i + 1) % MARK_STYLES.length];
+  settings.mark = m.id;
+  if (m.id !== 'none' && settings.markPos === 'random') current.markPos = randMarkPos();
+  rerender();
+  buildChips();
+  toast('邮戳 · ' + m.name);
+}
+
+els.valueInput.addEventListener('input', function () {
+  settings.value = els.valueInput.value.trim() || '80分';
+  rerender(); buildChips();
+});
+els.issuerInput.addEventListener('input', function () {
+  settings.issuer = els.issuerInput.value.trim() || '中国邮政';
+  rerender(); buildChips();
+});
+els.issuerSubInput.addEventListener('input', function () {
+  settings.issuerSub = els.issuerSubInput.value.trim();
+  rerender();
+});
+els.markSizeRange.addEventListener('input', function () {
+  settings.markSize = els.markSizeRange.value / 100;
+  rerender();
+});
+function syncTextAngle() {
+  els.textAngleRange.value = clamp(settings.textPos[settings.textSel].rot, -30, 30);
+}
+els.textAngleRange.addEventListener('input', function () {
+  settings.textPos[settings.textSel].rot = +els.textAngleRange.value;
+  rerender();
+});
+els.resetPoseBtn.addEventListener('click', function () {
+  settings.textPos = { value: { dx: 0, dy: 0, rot: 0 }, issuer: { dx: 0, dy: 0, rot: 0 } };
+  settings.stampAngle = 0;
+  applyStampAngle();
+  syncTextAngle();
+  rerender();
+  toast('已归位');
+});
+els.stickerSizeRange.addEventListener('input', function () {
+  settings.stickerSize = els.stickerSizeRange.value / 100;
+});
+els.cardMsgInput.addEventListener('input', function () {
+  settings.cardMsg = els.cardMsgInput.value.trim() || '见字如面,把今天的美好邮给你。';
+  if (current.view === 'product') rerender();
+});
+els.timerBtn.addEventListener('click', function () {
+  settings.timer = settings.timer === 0 ? 3 : (settings.timer === 3 ? 5 : 0);
+  els.timerBtn.classList.toggle('on', settings.timer > 0);
+  toast(settings.timer ? '定时 ' + settings.timer + ' 秒' : '定时关闭');
+});
+els.drawerClose.addEventListener('click', closeDrawer);
+els.drawerMask.addEventListener('click', closeDrawer);
+
+/* ============ 事件绑定 ============ */
+els.shutterBtn.addEventListener('click', handleShutter);
+els.flipBtn.addEventListener('click', async function () {
+  var want = facing === 'environment' ? 'user' : 'environment';
+  if (!(await restart(want))) toast('没有另一颗镜头');
+});
+els.fxBtn.addEventListener('click', function () { openDrawer(); });
+els.uploadBtn.addEventListener('click', function () { els.fileInput.click(); });
+els.fileInput.addEventListener('change', function () {
+  var f = els.fileInput.files && els.fileInput.files[0];
+  els.fileInput.value = '';
+  if (!f) return;
+  var url = URL.createObjectURL(f);
+  var img = new Image();
+  img.onload = function () {
+    beginStamp(processPhoto(grabFrame(img, img.naturalWidth, img.naturalHeight, false)));
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = function () { toast('这张图读不出来'); URL.revokeObjectURL(url); };
+  img.src = url;
+});
+els.retakeBtn.addEventListener('click', function () {
+  current.batch = [];
+  current.view = 'stamp';
+  show(els.camScreen);
+});
+els.saveBtn.addEventListener('click', saveStamp);
+els.editBtn.addEventListener('click', function () { openDrawer(); });
+els.downloadBtn.addEventListener('click', function () {
+  download(composeOutput().toDataURL('image/png'), filePrefix() + '_' + ts() + '.png');
+});
+els.shareBtn.addEventListener('click', async function () {
+  shareImage(await canvasBlob(composeOutput()), filePrefix() + '_' + ts() + '.png');
+});
+els.viewerShare.addEventListener('click', function () {
+  if (viewing) shareImage(dataURLBlob(viewing.img), '邮票_' + (viewing.date || '').slice(0, 10) + '.jpg');
+});
+els.albumBtn.addEventListener('click', function () { show(els.albumScreen); });
+els.backBtn.addEventListener('click', function () { show(els.camScreen); });
+els.emptyBackBtn.addEventListener('click', function () { show(els.camScreen); });
+els.viewerClose.addEventListener('click', closeViewer);
+els.viewer.addEventListener('click', function (e) { if (e.target === els.viewer) closeViewer(); });
+els.viewerDownload.addEventListener('click', function () {
+  if (viewing) download(viewing.img, '邮票_' + (viewing.date || '').slice(0, 10) + '.jpg');
+});
+els.viewerDelete.addEventListener('click', function () {
+  if (!viewing) return;
+  if (confirm('撕掉这枚邮票?')) {
+    album = album.filter(function (x) { return x.id !== viewing.id; });
+    persist();
+    renderAlbum();
+    updateBadge();
+    closeViewer();
+    toast('已从邮册移除');
+  }
+});
+document.addEventListener('keydown', function (e) {
+  if (e.code === 'Space' && !els.camScreen.classList.contains('hidden')) {
+    e.preventDefault();
+    handleShutter();
+  }
+  if (e.code === 'Escape' && els.drawer.classList.contains('open')) closeDrawer();
+});
+
+/* ============ 专属吻痕:拍嘴唇 → 色度抠图 → 变成可用的邮戳 ============ */
+var kissImg = null;
+try {
+  var kissData = localStorage.getItem('kissAssetV1');
+  if (kissData) {
+    MARK_STYLES.unshift({ id: 'kissx', name: '💋 我的吻痕' });
+    kissImg = new Image();
+    kissImg.src = kissData;
+  }
+} catch (e) {}
+
+// ponytail: "红色度×饱和度"阈值抠图,涂了口红效果最好;要精修得画笔蒙版,升级路径是接入分割模型
+function extractKiss(img) {
+  var iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  var W = 300, H = Math.max(1, Math.round(ih / iw * 300));
+  var c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  var g = c.getContext('2d');
+  g.drawImage(img, 0, 0, W, H);
+  var d = g.getImageData(0, 0, W, H), p = d.data;
+  for (var i = 0; i < p.length; i += 4) {
+    var mx = Math.max(p[i + 1], p[i + 2]);
+    var mn = Math.min(p[i + 1], p[i + 2]);
+    var red = p[i] - mx;                              // 红色超出其它通道的量
+    var sat = mx ? (mx - mn) / mx : 0;                // 饱和度(皮肤低、口红高)
+    var score = red * sat;
+    p[i + 3] = score > 15 ? Math.min(255, (score - 15) * 255 / 45) : 0;
+  }
+  g.putImageData(d, 0, 0);
+  return c.toDataURL('image/png');
+}
+function setKissAsset(dataURL) {
+  kissImg = new Image();
+  kissImg.src = dataURL;
+  if (!MARK_STYLES.some(function (m) { return m.id === 'kissx'; })) MARK_STYLES.unshift({ id: 'kissx', name: '💋 我的吻痕' });
+  try { localStorage.setItem('kissAssetV1', dataURL); } catch (e) {}
+  settings.mark = 'kissx';
+  current.markPos = getMarkPos();
+  rerender();
+  buildChips();
+  toast('吻痕做好了 · 可拖动可叠印 💋');
+}
+els.kissCaptureBtn.addEventListener('click', function () { els.kissFile.click(); });
+els.kissFile.addEventListener('change', function () {
+  var f = els.kissFile.files && els.kissFile.files[0];
+  els.kissFile.value = '';
+  if (!f) return;
+  var url = URL.createObjectURL(f);
+  var img = new Image();
+  img.onload = function () {
+    setKissAsset(extractKiss(img));
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = function () { toast('这张图读不出来'); URL.revokeObjectURL(url); };
+  img.src = url;
+});
+
+/* ============ 启动 ============ */
+applyTemplate(idOf(TEMPLATES, DEFAULT_TEMPLATE));
+els.cardMsgInput.value = settings.cardMsg;
+syncTextAngle();
+startCamera();
+watchDarkness();
+updateBadge();
+</script>
+</body>
+</html>
