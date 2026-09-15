@@ -1226,8 +1226,9 @@ function applyFocus(v) {
   t.applyConstraints({ advanced: [v > 0 ? { focusMode: 'manual', focusDistance: v } : { focusMode: 'continuous' }] }).catch(function () {});
 }
 
-// 点击对焦:在点击点附近扫 focusDistance,取局部最清晰的一档钉住。
-// ponytail: 假设约1.5秒扫描期间场景静止;自动曝光漂移会轻微干扰打分,
+// 点击对焦:从当前位置朝更清晰的方向单向推进(不做全范围来回扫,免得拉风箱),
+// 变差即停在峰旁,再对数二分收口。
+// ponytail: 假设推进期间场景静止;自动曝光漂移靠"抓两帧取大+6%迟滞"压,
 // 升级路径是同时锁 exposureMode
 var fc = null, fgc = null, afBusy = false;
 
@@ -1265,53 +1266,53 @@ async function tapFocus(cx, cy) {
   var t = stream.getVideoTracks()[0];
   if (!t || !t.applyConstraints) return;
   afBusy = true;
-  // vivo 能力范围是 float32 的 0.15000000596~10,扫 0.16~9.9 留边,别踩下界
-  var steps = [0.16, 0.4, 1, 2.5, 6.3, 9.9];
-  var sTap = [], sMid = [], i;
-  await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: steps[0] }] }).catch(function () {});
-  await new Promise(function (r) { setTimeout(r, 320); }); // 首步只推镜:刚从连续对焦大跳过来,残帧不可信
-  for (i = 1; i < steps.length; i++) {
-    try { await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: steps[i] }] }); } catch (e) { sTap.push(-1); sMid.push(-1); continue; }
-    await new Promise(function (r) { setTimeout(r, 220); }); // 等镜片到位+曝光稳住
-    var a1 = regionSharpness(cx, cy), b1 = regionSharpness(0.5, 0.42);
-    await new Promise(function (r) { setTimeout(r, 60); });
-    // 每档抓两帧取大:自动曝光还在泵动时,取更清晰那帧,压掉亮度瞬态
-    sTap.push(Math.max(a1, regionSharpness(cx, cy)));
-    sMid.push(Math.max(b1, regionSharpness(0.5, 0.42)));
+  // 每档:驱动镜片→等稳→抓两帧取大(压自动曝光的亮度瞬态)
+  function probe(d, settle) {
+    d = Math.min(9.9, Math.max(0.16, d)); // vivo 能力下限是 float32 的 0.15000000596,留边
+    return t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: d }] })
+      .then(function () { return new Promise(function (r) { setTimeout(r, settle); }); })
+      .then(function () {
+        var a = regionSharpness(px, py);
+        return new Promise(function (r) { setTimeout(r, 50); }).then(function () {
+          return { d: d, s: Math.max(a, regionSharpness(px, py)) };
+        });
+      })
+      .catch(function () { return { d: d, s: -1 }; });
   }
-  function pick(arr) {
-    var n = arr.length, sm = [], k, clean = [];
-    for (k = 0; k < n; k++) {
-      var a = arr[Math.max(0, k - 1)], b = arr[k], c = arr[Math.min(n - 1, k + 1)];
-      sm.push((a + 2 * b + c) / 4); // 三点平滑,压单档毛刺
+  var px = cx, py = cy;
+  var cur = lastFocus > 0 ? lastFocus : 0.45; // 从当前位置出发,不从最近档全范围扫
+  var s0 = await probe(cur, 300); // 起步长等:刚从连续对焦切过来,残帧不可信
+  var s = s0.s;
+  if (s > 0) {
+    var c0 = regionSharpness(0.5, 0.42);
+    if (s < c0 * 0.6) { px = 0.5; py = 0.42; s = c0; } // 点的地方没纹理(脸/白墙)改信中心
+    // 定方向:先试近,不明显好再试远;两边都不好=已经对上了,直接收工
+    var dir = 0, prev = cur, first = await probe(cur * 0.45, 190);
+    if (first.s > s * 1.06) { dir = 0.45; cur = first.d; s = first.s; }
+    else {
+      var second = await probe(cur * 2.2, 190);
+      if (second.s > s * 1.06) { dir = 2.2; cur = second.d; s = second.s; }
     }
-    for (k = 0; k < n; k++) if (sm[k] >= 0) clean.push(sm[k]);
-    clean.sort(function (x, y) { return x - y; });
-    var med = clean.length ? clean[clean.length >> 1] : 1e-6;
-    var bi = -1, bs = -1;
-    for (k = 0; k < n; k++) if (sm[k] > bs) { bs = sm[k]; bi = k; }
-    return { bi: bi, bs: arr[bi], ratio: bs / (med > 0 ? med : 1e-6) }; // 峰/中位 = 峰明不明显
-  }
-  var pT = pick(sTap), pM = pick(sMid);
-  var useTap = pT.bi >= 0 && pT.ratio >= pM.ratio; // 点击处没纹理(脸/白墙)时改信画面中心
-  var px = useTap ? cx : 0.5, py = useTap ? cy : 0.42;
-  var p = useTap ? pT : pM;
-  var best = 0.5, bestS = -1;
-  if (p.bi >= 0) {
-    // 粗峰在 steps[p.bi+1],与近邻 steps[p.bi] 夹成对数区间,二分逼近
-    var lo = steps[p.bi], hi = steps[p.bi + 1];
-    best = hi; bestS = p.bs;
-    var rounds = p.bi === 0 ? 3 : 2; // 近拍景深只有几厘米,多分一轮
-    for (i = 0; i < rounds; i++) {
-      var mid = Math.sqrt(lo * hi);
-      try { await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: mid }] }); } catch (e) { break; }
-      await new Promise(function (r) { setTimeout(r, 180); });
-      var s2 = regionSharpness(px, py);
-      if (s2 > bestS) { bestS = s2; best = mid; hi = mid; } else { lo = mid; }
+    if (dir !== 0) {
+      // 单向推进,变差就停:镜头只朝一个方向走,不来回拉风箱
+      var guard = 0;
+      while (guard++ < 4) {
+        var nxt = cur * dir;
+        if (nxt < 0.16 || nxt > 9.9) break;
+        var r2 = await probe(nxt, 190);
+        if (r2.s > s * 1.02) { s = r2.s; prev = cur; cur = nxt; } else { prev = nxt; break; }
+      }
+      // 峰夹在 cur 与 prev 之间,对数中点收两轮
+      for (var i = 0; i < 2; i++) {
+        var mid = Math.sqrt(cur * prev);
+        if (mid === cur || mid === prev) break;
+        var rm = await probe(mid, 170);
+        if (rm.s > s) { s = rm.s; cur = mid; } else prev = mid;
+      }
     }
   }
-  try { await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: best }] }); } catch (e) {}
-  lastFocus = best;
+  try { await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: cur }] }); } catch (e) {}
+  lastFocus = cur;
   afBusy = false;
 }
 
