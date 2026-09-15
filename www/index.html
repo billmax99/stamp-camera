@@ -22,8 +22,14 @@ body{
 
 /* ————— ① 相机屏 ————— */
 #camScreen{background:#000}
-#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:filter .3s}
-#video.mirrored{transform:scaleX(-1)}
+#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:filter .3s,opacity .25s}
+#video.live{opacity:1}
+#vfWrap{position:absolute;pointer-events:none}
+#vfOuter{position:absolute;inset:0;border:2px dashed rgba(255,255,255,.92);box-shadow:0 0 0 1px rgba(0,0,0,.2),inset 0 0 26px rgba(0,0,0,.14)}
+#vfInner{position:absolute;border:1px dashed rgba(255,255,255,.55)}
+#focusRing{position:absolute;width:74px;height:74px;margin:-37px 0 0 -37px;border:2px solid rgba(255,255,255,.95);border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.3);pointer-events:none;opacity:0}
+#focusRing.on{animation:fz .9s ease-out}
+@keyframes fz{0%{opacity:1;transform:scale(1.55)}70%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1)}}
 .cam-topbar,.cam-bottombar{position:relative;z-index:2;display:flex;align-items:center}
 .cam-topbar{
   justify-content:space-between;
@@ -200,6 +206,7 @@ body{
 <!-- ① 相机屏 -->
 <section id="camScreen" class="screen">
   <video id="video" autoplay playsinline muted></video>
+  <div id="vfWrap" class="hidden" aria-hidden="true"><div id="vfOuter"></div><div id="vfInner"></div></div>
   <header class="cam-topbar">
     <button id="albumBtn" class="icon-btn" aria-label="我的邮册">📮<span id="albumBadge" class="badge hidden">0</span></button>
     <div class="cam-title"><b>邮票相机</b></div>
@@ -214,6 +221,7 @@ body{
     <button id="timerBtn" class="icon-btn" aria-label="定时拍摄">⏱</button>
   </footer>
   <div id="flash"></div>
+  <div id="focusRing"></div>
   <div id="countdown" class="hidden"></div>
   <input id="fileInput" type="file" accept="image/*" hidden>
 </section>
@@ -527,7 +535,7 @@ var settings = {
 };
 
 var els = {};
-['video', 'flash', 'timerBtn', 'countdown', 'fileInput', 'camScreen', 'stampScreen', 'albumScreen',
+['video', 'vfWrap', 'vfOuter', 'vfInner', 'focusRing', 'flash', 'timerBtn', 'countdown', 'fileInput', 'camScreen', 'stampScreen', 'albumScreen',
  'stampCanvas', 'cutter', 'stampHint', 'stampActions', 'retakeBtn', 'saveBtn', 'downloadBtn', 'editBtn',
  'albumBtn', 'albumBadge', 'flipBtn', 'fxBtn', 'uploadBtn', 'shutterBtn', 'backBtn', 'albumGrid',
  'albumEmpty', 'emptyBackBtn', 'albumCount2', 'viewer', 'viewerImg',
@@ -1207,6 +1215,122 @@ function rerender() {
 
 /* ============ 相机 ============ */
 var stream = null, facing = 'environment';
+// >0 = 手动对焦距离(米,点击对焦搜出来的);0 = 自动。vivo 实测 single-shot 只回 ok
+// 不动镜片(帧差0),手动 focusDistance 镜头真的会动(帧差22),点击对焦靠后者实现
+var lastFocus = 0;
+
+function applyFocus(v) {
+  lastFocus = v;
+  var t = stream && stream.getVideoTracks()[0];
+  if (!t || !t.applyConstraints) return;
+  t.applyConstraints({ advanced: [v > 0 ? { focusMode: 'manual', focusDistance: v } : { focusMode: 'continuous' }] }).catch(function () {});
+}
+
+// 点击对焦:在点击点附近扫 focusDistance,取局部最清晰的一档钉住。
+// ponytail: 假设约1.5秒扫描期间场景静止;自动曝光漂移会轻微干扰打分,
+// 升级路径是同时锁 exposureMode
+var fc = null, fgc = null, afBusy = false;
+
+// 只取 (cx,cy) 周围 ±12% 的原生分辨率区域打分;整帧缩小会把细节抹平,峰变平选不准
+function regionSharpness(cx, cy) {
+  if (!fc) {
+    fc = document.createElement('canvas');
+    fc.width = 72; fc.height = 72;
+    fgc = fc.getContext('2d', { willReadFrequently: true });
+  }
+  var vw = els.video.videoWidth, vh = els.video.videoHeight;
+  var r = Math.min(vw, vh) * 0.12;
+  var sx = Math.min(vw - 2 * r, Math.max(0, cx * vw - r));
+  var sy = Math.min(vh - 2 * r, Math.max(0, cy * vh - r));
+  fgc.drawImage(els.video, sx, sy, 2 * r, 2 * r, 0, 0, 72, 72);
+  var d = fgc.getImageData(0, 0, 72, 72).data;
+  var L = new Array(72 * 72);
+  var x, y, i;
+  for (y = 0; y < 72; y++) for (x = 0; x < 72; x++) {
+    i = (y * 72 + x) * 4;
+    L[y * 72 + x] = d[i] * 0.5 + d[i + 1] * 0.8 + d[i + 2] * 0.2;
+  }
+  var grad = 0, lum = 0;
+  for (y = 0; y < 72; y++) for (x = 0; x < 72; x++) {
+    var v = L[y * 72 + x];
+    lum += v;
+    if (x < 71) grad += Math.abs(v - L[y * 72 + x + 1]);
+    if (y < 71) grad += Math.abs(v - L[(y + 1) * 72 + x]);
+  }
+  return grad / (lum + 1); // 按亮度归一,免得自动曝光变亮被误判为更清晰
+}
+
+async function tapFocus(cx, cy) {
+  if (afBusy || !stream) return;
+  var t = stream.getVideoTracks()[0];
+  if (!t || !t.applyConstraints) return;
+  afBusy = true;
+  // vivo 能力范围是 float32 的 0.15000000596~10,扫 0.16~9.9 留边,别踩下界
+  var steps = [0.16, 0.4, 1, 2.5, 6.3, 9.9];
+  var sTap = [], sMid = [], i;
+  await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: steps[0] }] }).catch(function () {});
+  await new Promise(function (r) { setTimeout(r, 320); }); // 首步只推镜:刚从连续对焦大跳过来,残帧不可信
+  for (i = 1; i < steps.length; i++) {
+    try { await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: steps[i] }] }); } catch (e) { sTap.push(-1); sMid.push(-1); continue; }
+    await new Promise(function (r) { setTimeout(r, 220); }); // 等镜片到位+曝光稳住
+    var a1 = regionSharpness(cx, cy), b1 = regionSharpness(0.5, 0.42);
+    await new Promise(function (r) { setTimeout(r, 60); });
+    // 每档抓两帧取大:自动曝光还在泵动时,取更清晰那帧,压掉亮度瞬态
+    sTap.push(Math.max(a1, regionSharpness(cx, cy)));
+    sMid.push(Math.max(b1, regionSharpness(0.5, 0.42)));
+  }
+  function pick(arr) {
+    var n = arr.length, sm = [], k, clean = [];
+    for (k = 0; k < n; k++) {
+      var a = arr[Math.max(0, k - 1)], b = arr[k], c = arr[Math.min(n - 1, k + 1)];
+      sm.push((a + 2 * b + c) / 4); // 三点平滑,压单档毛刺
+    }
+    for (k = 0; k < n; k++) if (sm[k] >= 0) clean.push(sm[k]);
+    clean.sort(function (x, y) { return x - y; });
+    var med = clean.length ? clean[clean.length >> 1] : 1e-6;
+    var bi = -1, bs = -1;
+    for (k = 0; k < n; k++) if (sm[k] > bs) { bs = sm[k]; bi = k; }
+    return { bi: bi, bs: arr[bi], ratio: bs / (med > 0 ? med : 1e-6) }; // 峰/中位 = 峰明不明显
+  }
+  var pT = pick(sTap), pM = pick(sMid);
+  var useTap = pT.bi >= 0 && pT.ratio >= pM.ratio; // 点击处没纹理(脸/白墙)时改信画面中心
+  var px = useTap ? cx : 0.5, py = useTap ? cy : 0.42;
+  var p = useTap ? pT : pM;
+  var best = 0.5, bestS = -1;
+  if (p.bi >= 0) {
+    // 粗峰在 steps[p.bi+1],与近邻 steps[p.bi] 夹成对数区间,二分逼近
+    var lo = steps[p.bi], hi = steps[p.bi + 1];
+    best = hi; bestS = p.bs;
+    var rounds = p.bi === 0 ? 3 : 2; // 近拍景深只有几厘米,多分一轮
+    for (i = 0; i < rounds; i++) {
+      var mid = Math.sqrt(lo * hi);
+      try { await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: mid }] }); } catch (e) { break; }
+      await new Promise(function (r) { setTimeout(r, 180); });
+      var s2 = regionSharpness(px, py);
+      if (s2 > bestS) { bestS = s2; best = mid; hi = mid; } else { lo = mid; }
+    }
+  }
+  try { await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: best }] }); } catch (e) {}
+  lastFocus = best;
+  afBusy = false;
+}
+
+els.camScreen.addEventListener('click', function (e) {
+  if (e.target.closest('button') || e.target !== els.video || !els.video.videoWidth) return;
+  var r = els.video.getBoundingClientRect();
+  var vw = els.video.videoWidth, vh = els.video.videoHeight;
+  var k = Math.max(r.width / vw, r.height / vh);
+  var vx = (e.clientX - r.left - (r.width - vw * k) / 2) / (vw * k);
+  var vy = (e.clientY - r.top - (r.height - vh * k) / 2) / (vh * k);
+  vx = Math.min(1, Math.max(0, vx)); vy = Math.min(1, Math.max(0, vy));
+  if (els.video.classList.contains('mirrored')) vx = 1 - vx;
+  els.focusRing.style.left = (e.clientX - r.left) + 'px';
+  els.focusRing.style.top = (e.clientY - r.top) + 'px';
+  els.focusRing.classList.remove('on');
+  void els.focusRing.offsetWidth;
+  els.focusRing.classList.add('on');
+  tapFocus(vx, vy);
+});
 
 async function restart(want) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
@@ -1218,8 +1342,11 @@ async function restart(want) {
     if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
     stream = s;
     facing = want;
+    els.video.classList.remove('live');
     els.video.srcObject = s;
     els.video.classList.toggle('mirrored', want === 'user');
+    els.video.play().catch(function () {}); // 不显式播,WebView 会停在空视频占位图(大播放按钮)
+    if (lastFocus > 0) applyFocus(lastFocus);
     return true;
   } catch (e) {
     return false;
@@ -1229,6 +1356,38 @@ async function restart(want) {
 async function startCamera() {
   if (!(await restart(facing))) toast('相机不可用,点击左下角用相片做邮票');
 }
+
+/* 首帧到了才亮画面:空 video 在 WebView 里是一整屏灰色播放按钮占位图 */
+els.video.addEventListener('playing', function () {
+  els.video.classList.add('live');
+  updateVfFrame();
+});
+
+/* 退后台再回来:系统会把相机轨道掐成 ended,自动重开 */
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) return;
+  var t = stream && stream.getVideoTracks()[0];
+  if (!t || t.readyState !== 'live') restart(facing);
+  else els.video.play().catch(function () {});
+});
+
+/* 取景邮票框:按 grabFrame 的中央 3:4 裁切换算到屏幕坐标;
+   唇形/爱心没有 CSS 形状,用圆角近似示意(ponytail: 示意框,非逐齿精确) */
+function updateVfFrame() {
+  var vw = els.video.videoWidth, vh = els.video.videoHeight;
+  if (!vw || els.camScreen.classList.contains('hidden')) { els.vfWrap.classList.add('hidden'); return; }
+  var dw = els.video.clientWidth, dh = els.video.clientHeight;
+  var k = Math.max(dw / vw, dh / vh);
+  var tr = 660 / 880;
+  var cw = Math.min(vw, vh * tr) * k, ch = Math.min(vh, vw / tr) * k;
+  els.vfWrap.classList.remove('hidden');
+  els.vfWrap.style.cssText = 'width:' + cw + 'px;height:' + ch + 'px;left:' + (dw - cw) / 2 + 'px;top:' + (dh - ch) / 2 + 'px';
+  els.vfOuter.style.borderRadius = ({ rect: 0, rounded: '7%', oval: '50%', lips: '42% 42% 48% 48%' })[settings.shape] || 0;
+  els.vfInner.style.borderRadius = ({ rect: 0, rounded: '9%', oval: '50%', heart: '40% 40% 50% 50%', lips: '42% 42% 48% 48%' })[settings.window] || 0;
+  var inset = Math.round(Math.min(cw, ch) * 0.07 * (idOf(SHAPES, settings.shape).win || 1));
+  els.vfInner.style.inset = inset + 'px';
+}
+window.addEventListener('resize', updateVfFrame);
 
 /* 画面全黑提示:流健康但亮度接近 0,多半是镜头被挡或朝下 */
 function watchDarkness() {
@@ -1251,6 +1410,7 @@ function watchDarkness() {
 }
 
 function shutter() {
+  if (afBusy) { toast('对焦中,松开再拍'); return; }
   if (!els.video.videoWidth) { toast('相机没准备好,试试左下角导入照片'); return; }
   els.flash.classList.remove('on');
   void els.flash.offsetWidth;
@@ -1569,10 +1729,10 @@ function buildChips() {
     settings.backdrop = b.id; applyBackdrop(); buildChips();
   });
   chipsRow(els.shapeChips, SHAPES, function (s) { return s.id === settings.shape; }, function (s) {
-    settings.shape = s.id; current.markPos = getMarkPos(); rerender(); buildChips();
+    settings.shape = s.id; current.markPos = getMarkPos(); rerender(); buildChips(); updateVfFrame();
   });
   chipsRow(els.windowChips, WINDOWS, function (w) { return w.id === settings.window; }, function (w) {
-    settings.window = w.id; rerender(); buildChips();
+    settings.window = w.id; rerender(); buildChips(); updateVfFrame();
   });
   chipsRow(els.perfChips, PERF_STYLES, function (p) { return p.id === settings.perf; }, function (p) {
     settings.perf = p.id;
