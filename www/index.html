@@ -395,6 +395,7 @@ var MARK_STYLES = [
   { id: 'heart', name: '爱心邮戳' },
   { id: 'frame', name: '纪念邮戳' },
   { id: 'kiss', name: '💋 吻痕戳' },
+  { id: 'skull', name: '☠️ 幽冥戳' },
   { id: 'none', name: '不加盖' }
 ];
 
@@ -519,7 +520,10 @@ var STICKERS = [
   { id: 'diamond', e: '💎', name: '钻石耳坠', x: 0.88, y: 0.32, s: 0.16, fx: 1.04, fy: 0.5, fs: 0.3 },
   { id: 'darkheart', e: '🖤', name: '暗黑爱心', x: 0.76, y: 0.44, s: 0.16, fx: 0.8, fy: 0.55, fs: 0.3 },
   { id: 'earmuff', e: '', name: '毛绒耳包', x: 0.5, y: 0.15, s: 0.4, fx: 0.5, fy: 0.3, fs: 1.2, draw: 'earmuff' },
-  { id: 'headband', e: '', name: '发箍', x: 0.5, y: 0.08, s: 0.45, fx: 0.5, fy: 0, fs: 1.2, draw: 'headband' }
+  { id: 'headband', e: '', name: '发箍', x: 0.5, y: 0.08, s: 0.45, fx: 0.5, fy: 0, fs: 1.2, draw: 'headband' },
+  { id: 'skullface', e: '☠️', name: '骷髅贴', x: 0.24, y: 0.44, s: 0.16, fx: 0.2, fy: 0.55, fs: 0.3 },
+  { id: 'bat', e: '🦇', name: '蝙蝠', x: 0.15, y: 0.1, s: 0.2, fx: 0.12, fy: -0.3, fs: 0.4 },
+  { id: 'moon', e: '🌙', name: '弯月', x: 0.85, y: 0.1, s: 0.2, fx: 0.88, fy: -0.28, fs: 0.42 }
 ];
 
 // 邮票展示大小
@@ -544,7 +548,8 @@ var GRID_OPTS = [
 // 妆:跟脸画在五官上(468 点定位),预览实时跟随,成片烙印;可多选
 var MAKEUP = [
   { id: 'blush', name: '🌸 腮红' },
-  { id: 'lip', name: '💄 口红' },
+  { id: 'lip', name: '💄 口红', color: 'rgba(212,51,92,.75)' },
+  { id: 'darklip', name: '🖤 暗黑唇', color: 'rgba(48,26,58,.85)' },
   { id: 'shadow', name: '🎨 眼影' }
 ];
 
@@ -572,7 +577,7 @@ var TEMPLATES = [
   { id: 'galaxy', name: '✨ 星际邮局', issuer: '星际邮局', issuerSub: 'GALAXY POST', value: '1光年', valueColor: '#1c1a17', paper: 'sky', backdrop: 'night', shape: 'oval', window: 'oval', perf: 'dense', cut: 'fast', mark: 'frame', shutter: 'gold' },
   { id: 'kiss', name: '💋 以吻封笺', issuer: '以吻封笺', issuerSub: 'SEALED WITH A KISS', value: '一个吻', valueColor: '#ffffff', paper: 'rose', backdrop: 'blush', shape: 'lips', window: 'lips', perf: 'none', cut: 'cw', mark: 'kiss', shutter: 'love' },
   { id: 'vogue', name: '🥂 熟女时代', issuer: '优雅邮局', issuerSub: 'MAISON DE VOGUE', value: '优雅', valueColor: '#6b5335', ink: '#6b5335', paper: 'champagne', backdrop: 'wine', shape: 'rect', window: 'rect', perf: 'classic', cut: 'ccw', mark: 'frame', shutter: 'gold', beauty: 'vogue', markInk: 'ink' },
-  { id: 'noir', name: '🌑 暗黑夜曲', issuer: '午夜邮局', issuerSub: 'MIDNIGHT POST', value: '弎号', valueColor: '#cfc4de', ink: '#cfc4de', paper: 'noir', backdrop: 'inknight', shape: 'rounded', window: 'rounded', perf: 'classic', cut: 'cw', mark: 'frame', shutter: 'seal', beauty: 'goth' },
+  { id: 'noir', name: '🌑 暗黑夜曲', issuer: '冥府邮局', issuerSub: 'UNDERWORLD POST', value: '拾叁', valueColor: '#cfc4de', ink: '#cfc4de', paper: 'noir', backdrop: 'inknight', shape: 'rounded', window: 'rounded', perf: 'classic', cut: 'cw', mark: 'skull', shutter: 'seal', beauty: 'goth', markInk: 'ink' },
   { id: 'rosegirl', name: '🌹 摩登玫瑰', issuer: '玫瑰邮局', issuerSub: 'ROSE AND WINE', value: '心动', valueColor: '#8e2437', ink: '#8e2437', paper: 'velvetrose', backdrop: 'wine', shape: 'rounded', window: 'oval', perf: 'heart', cut: 'cw', mark: 'kiss', shutter: 'love', beauty: 'warm' }
 ];
 var DEFAULT_TEMPLATE = 'meihao';
@@ -1084,6 +1089,19 @@ function drawPostmark(g, pos, style, size, alpha) {
   } else if (style.id === 'kissx' && kissImg && kissImg.complete && kissImg.naturalWidth) {
     var kw = 150, kh = kw * kissImg.naturalHeight / kissImg.naturalWidth;
     g.drawImage(kissImg, -kw / 2, -kh / 2, kw, kh); // 专属吻痕素材
+  } else if (style.id === 'skull') { // 幽冥戳:骷髅+日期,冷银紫
+    g.strokeStyle = g.fillStyle = '#a8a4bd';
+    g.lineWidth = 2.2;
+    g.beginPath(); g.arc(0, 0, 58, 0, 6.2832); g.stroke();
+    g.lineWidth = 1.1;
+    g.beginPath(); g.arc(0, 0, 52, 0, 6.2832); g.stroke();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.font = '44px ' + EMOJI;
+    g.fillText('☠️', 0, -6);
+    g.font = '700 11px ' + KAITI;
+    g.fillText(ds, 0, 32);
+    g.font = '6.5px "Times New Roman",Georgia,serif';
+    g.fillText('U N D E R W O R L D', 0, 43);
   } else if (style.id === 'frame') {
     g.strokeStyle = g.fillStyle = '#26417a';
     g.lineWidth = 2.2;
@@ -1718,8 +1736,8 @@ function drawMakeupShapes(g, pts, W, H, mirror, roll) {
         g.ellipse(q[0], q[1], W * 0.085, W * 0.048, 0.15, 0, 6.2832);
         g.fill();
       });
-    } else if (m.id === 'lip') {
-      g.fillStyle = 'rgba(212,51,92,.75)';
+    } else if (m.id === 'lip' || m.id === 'darklip') { // 唇类共用唇形路径,色随行
+      g.fillStyle = m.color || 'rgba(212,51,92,.75)';
       g.lineJoin = 'round';
       g.beginPath();
       [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146].forEach(function (ix, k) {
