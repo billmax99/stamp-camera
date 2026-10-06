@@ -11,7 +11,7 @@ assert.ok(m, 'index.html 里找不到 CORE 标记块');
 assert.strictEqual(typeof perforationPath, 'function', 'CORE 块应定义 perforationPath');
 for (const t of ['PERF_STYLES', 'CUT_MODES', 'MARK_STYLES', 'MARK_POS', 'MARK_INK', 'WEAR', 'SHAPES', 'WINDOWS',
   'PAPERS', 'BACKDROPS', 'SHUTTER_STYLES', 'BEAUTY', 'BLUR_BG', 'STICKERS', 'SIZE_PRESETS',
-  'SHOOT_MODES', 'PRODUCTS', 'STYLES', 'TEMPLATES']) {
+  'SHOOT_MODES', 'GRID_OPTS', 'PRODUCTS', 'STYLES', 'TEMPLATES']) {
   assert.ok(Array.isArray(eval(t)), `CORE 块应导出表 ${t}`);
 }
 
