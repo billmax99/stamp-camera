@@ -4,25 +4,46 @@
 
 - 网页版功能完备:三屏流程(拍照裁切成票/邮册)、5 套模板、4 套整体风格、
   全维度定制(齿孔·外形·内窗·纸面·背景·邮戳·盖戳力度·磨损·文字与票体拖转)、
-  纸品(明信片/首日封/拍立得/四连整版)、美颜·虚化·贴饰·定时·分享、
+  纸品(明信片/首日封/拍立得/四连整版)、美颜·滤镜(电影感/蓝调/暖调)·
+  真人像虚化·贴饰跟脸·手电筒·九宫格构图线·显影动画·定时·分享、
   以吻封笺唇形票 + 拍嘴唇做专属吻章(色度抠图)
-- Android:`邮票相机-debug.apk` debug 签名,已在 vivo 真机端到端验证
+- 真机点击对焦:手动 focusDistance 扫描+单向推进(vivo 的 single-shot 是假动作)
+- Android:`邮票相机-debug.apk`(12.7MB)debug 签名,已在 vivo 真机端到端验证;
+  MediaPipe(wasm+人脸/分割模型)打包在 vendor/ 经 www 进 APK,加载失败自动降级
 - 工作流:AGENTS.md / WRAP.md / TODO.md 就位(本文件),双电脑同步
+
+## 已完成
+
+- [x] 真人像虚化:MediaPipe selfie_segmenter 打包进 APK 替换伪景深
+      (面积护栏 2%~92% 之外回退伪景深,拍静物不出鬼图)
+- [x] 贴饰跟脸:BlazeFace 人脸检测(取景实时 overlay + 成片烙印),
+      STICKERS 表 fx/fy/fs 锚点,无脸回退固定坐标
+- [x] 借鉴同类 app 四件套:手电筒补光(torch)/ 复古色调滤镜 / 九宫格构图线 /
+      拍立得显影动画(调研:Stampo/Stamp 邮票相机/NOMO/Dazz)
+- [x] 开屏"播放按钮"修复(video 首帧前隐藏 + 后台回来自动重启相机)
+- [x] 取景邮票框(随外形/内窗设置实时变化)
+- [x] 真机点击对焦(单向推进,1.2~1.5s)
 
 ## 待办
 
 - [高] release 签名 APK(替换 debug 签名,才能长期分发)
-- [高] 真人像虚化:打包 MediaPipe/分割模型进 APK,替换伪景深(接口在 processPhoto)
 - [中] iOS 版(需 Mac + Xcode + 开发者账号,`npx cap add ios`)
 - [中] 吻痕抠图精修:画笔蒙版手动修边(现阈值法,素唇效果一般)
-- [低] 邮册导出/多选分享;模板自定义配色
+- [中] 贴饰跟脸体验细化:贴饰旋转随头部倾斜(BlazeFace 眼距关键点可算 roll 角)
+- [低] 邮册导出/多选分享;透明 PNG 贴纸导出(手账向,竞品 Stamp Maker 有)
 
 ## 已知坑点
 
 - 构建必须用 JDK21(`jdk21/jdk-21.0.2`,不进仓库;详见 打包说明.md),
   系统默认 JDK17 跑不动 Capacitor 7.6.9、JDK25 跑不动 Gradle 8.11
+- 打包同步要带模型:`cp -r vendor www/`(MediaPipe wasm+模型,见 打包说明.md)
+- WebView 的 MediaPipe **GPU delegate 必报 graph 错**(VIDEO 模式),
+  FaceDetector/ImageSegmenter 都要固定 CPU delegate(真机实测)
+- selfie 分割模型对"无人场景"(拍静物)输出不可信(桌面帧全 1),
+  已加人像面积护栏兜底;虚化效果请拿真人验收
 - 项目路径含中文:`android/gradle.properties` 已加 `android.overridePathCheck=true`
 - vivo 安装 adb 包会弹"安全守护"确认,需勾选+继续安装(可自动化点击)
+- vivo 相机服务偶发挂死(getUserMedia 60s 无响应),force-stop 重开即恢复
 - Android WebView 只暴露后摄:翻转镜头在 APK 内天然不可用(已有 toast 降级)
 - 定制抽屉加新选项的套路:往 CORE 区对应表加一行 → buildChips 自动出芯片
   → test.js 的表断言自动校验;改 drawPrint 后必跑 `node test.js`(齿孔安全区断言)
