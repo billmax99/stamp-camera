@@ -448,7 +448,10 @@ var PAPERS = [
   { id: 'rose', name: '玫瑰粉', fill: '#fdeef1' },
   { id: 'sky', name: '天空蓝', fill: '#edf4fb' },
   { id: 'mint', name: '薄荷绿', fill: '#ecf5ec' },
-  { id: 'vintage', name: '做旧黄', fill: '#f2e8d0' }
+  { id: 'vintage', name: '做旧黄', fill: '#f2e8d0' },
+  { id: 'champagne', name: '香槟缎', fill: '#f3ead9' },
+  { id: 'noir', name: '烟雾黑', fill: '#262230', ink: 'light' },
+  { id: 'velvetrose', name: '玫瑰绸', fill: '#fbe7ea' }
 ];
 
 // 邮票屏背景桌布(dark=深色,需切浅色文字)
@@ -456,7 +459,9 @@ var BACKDROPS = [
   { id: 'desk', name: '原木桌面', css: 'radial-gradient(130% 90% at 50% 0%,#f8f2e4 0%,#f3ecdd 55%,#e7dcc3 100%)' },
   { id: 'linen', name: '格子桌布', css: 'repeating-linear-gradient(0deg,#f6efdf 0 18px,#efe5cd 18px 36px),repeating-linear-gradient(90deg,rgba(255,255,255,.5) 0 18px,rgba(206,186,146,.25) 18px 36px)' },
   { id: 'blush', name: '少女粉', css: 'linear-gradient(160deg,#fde8ec 0%,#f9d7dd 45%,#f3c6cf 100%)' },
-  { id: 'night', name: '午夜蓝', css: 'radial-gradient(120% 100% at 50% 0%,#2c3e5d 0%,#1d2b42 55%,#131c2e 100%)', dark: true }
+  { id: 'night', name: '午夜蓝', css: 'radial-gradient(120% 100% at 50% 0%,#2c3e5d 0%,#1d2b42 55%,#131c2e 100%)', dark: true },
+  { id: 'wine', name: '酒红丝绒', css: 'radial-gradient(120% 100% at 50% 0%,#5c1f2e 0%,#431624 55%,#2c0e18 100%)', dark: true },
+  { id: 'inknight', name: '纯黑夜', css: 'radial-gradient(120% 100% at 50% 0%,#23202b 0%,#151319 55%,#0c0b10 100%)', dark: true }
 ];
 
 // 拍摄按键样式
@@ -480,6 +485,7 @@ var BEAUTY = [
   { id: 'mono', name: '🎬 黑白', css: 'grayscale(1) contrast(1.12) brightness(1.03)' },
   { id: 'goth', name: '🌑 暗黑', css: 'brightness(.8) contrast(1.3) saturate(.55)', vig: 1 },
   // 水墨/水彩:css 只是取景近似预览,成片跑真正的逐像素处理(fx 字段,ponytail)
+  { id: 'vogue', name: '🥂 香槟', css: 'sepia(.14) contrast(1.06) saturate(.9) brightness(1.05)' },
   { id: 'ink', name: '🖋 水墨', css: 'grayscale(.85) brightness(1.1) contrast(.97)', fx: 'ink' },
   { id: 'water', name: '🎨 水彩', css: 'saturate(1.28) brightness(1.05) contrast(.94)', fx: 'water' }
 ];
@@ -508,7 +514,12 @@ var STICKERS = [
   { id: 'rose', e: '🌹', name: '玫瑰', x: 0.12, y: 0.30, s: 0.2, fx: -0.08, fy: 0.5, fs: 0.42 },
   { id: 'cherry', e: '🍒', name: '樱桃耳环', x: 0.88, y: 0.30, s: 0.18, fx: 1.05, fy: 0.45, fs: 0.38 },
   { id: 'kiss', e: '💋', name: '唇印', x: 0.75, y: 0.42, s: 0.16, fx: 0.82, fy: 0.6, fs: 0.3 },
-  { id: 'necklace', e: '📿', name: '项链', x: 0.5, y: 0.55, s: 0.35, fx: 0.5, fy: 1.12, fs: 0.85 }
+  { id: 'necklace', e: '📿', name: '项链', x: 0.5, y: 0.55, s: 0.35, fx: 0.5, fy: 1.12, fs: 0.85 },
+  { id: 'tophat', e: '🎩', name: '礼帽', x: 0.5, y: 0.05, s: 0.42, fx: 0.5, fy: -0.4, fs: 1.05 },
+  { id: 'diamond', e: '💎', name: '钻石耳坠', x: 0.88, y: 0.32, s: 0.16, fx: 1.04, fy: 0.5, fs: 0.3 },
+  { id: 'darkheart', e: '🖤', name: '暗黑爱心', x: 0.76, y: 0.44, s: 0.16, fx: 0.8, fy: 0.55, fs: 0.3 },
+  { id: 'earmuff', e: '', name: '毛绒耳包', x: 0.5, y: 0.15, s: 0.4, fx: 0.5, fy: 0.3, fs: 1.2, draw: 'earmuff' },
+  { id: 'headband', e: '', name: '发箍', x: 0.5, y: 0.08, s: 0.45, fx: 0.5, fy: 0, fs: 1.2, draw: 'headband' }
 ];
 
 // 邮票展示大小
@@ -559,7 +570,10 @@ var TEMPLATES = [
   { id: 'meihao', name: '📮 把美好邮给你', issuer: '把美好邮给你', issuerSub: 'SEND THE BEAUTY', value: '美好', valueColor: '#1c1a17', paper: 'ivory', backdrop: 'desk', shape: 'rect', window: 'rect', perf: 'classic', cut: 'cw', mark: 'standard', shutter: 'classic' },
   { id: 'china', name: '🇨🇳 中国邮政', issuer: '中国邮政', issuerSub: 'CHINA POST', value: '80分', valueColor: '#1c1a17', paper: 'vintage', backdrop: 'linen', shape: 'rect', window: 'rect', perf: 'classic', cut: 'ccw', mark: 'standard', shutter: 'seal' },
   { id: 'galaxy', name: '✨ 星际邮局', issuer: '星际邮局', issuerSub: 'GALAXY POST', value: '1光年', valueColor: '#1c1a17', paper: 'sky', backdrop: 'night', shape: 'oval', window: 'oval', perf: 'dense', cut: 'fast', mark: 'frame', shutter: 'gold' },
-  { id: 'kiss', name: '💋 以吻封笺', issuer: '以吻封笺', issuerSub: 'SEALED WITH A KISS', value: '一个吻', valueColor: '#ffffff', paper: 'rose', backdrop: 'blush', shape: 'lips', window: 'lips', perf: 'none', cut: 'cw', mark: 'kiss', shutter: 'love' }
+  { id: 'kiss', name: '💋 以吻封笺', issuer: '以吻封笺', issuerSub: 'SEALED WITH A KISS', value: '一个吻', valueColor: '#ffffff', paper: 'rose', backdrop: 'blush', shape: 'lips', window: 'lips', perf: 'none', cut: 'cw', mark: 'kiss', shutter: 'love' },
+  { id: 'vogue', name: '🥂 熟女时代', issuer: '优雅邮局', issuerSub: 'MAISON DE VOGUE', value: '优雅', valueColor: '#6b5335', ink: '#6b5335', paper: 'champagne', backdrop: 'wine', shape: 'rect', window: 'rect', perf: 'classic', cut: 'ccw', mark: 'frame', shutter: 'gold', beauty: 'vogue', markInk: 'ink' },
+  { id: 'noir', name: '🌑 暗黑夜曲', issuer: '午夜邮局', issuerSub: 'MIDNIGHT POST', value: '弎号', valueColor: '#cfc4de', ink: '#cfc4de', paper: 'noir', backdrop: 'inknight', shape: 'rounded', window: 'rounded', perf: 'classic', cut: 'cw', mark: 'frame', shutter: 'seal', beauty: 'goth' },
+  { id: 'rosegirl', name: '🌹 摩登玫瑰', issuer: '玫瑰邮局', issuerSub: 'ROSE AND WINE', value: '心动', valueColor: '#8e2437', ink: '#8e2437', paper: 'velvetrose', backdrop: 'wine', shape: 'rounded', window: 'oval', perf: 'heart', cut: 'cw', mark: 'kiss', shutter: 'love', beauty: 'warm' }
 ];
 var DEFAULT_TEMPLATE = 'meihao';
 
@@ -777,9 +791,11 @@ function processPhoto(c, faceData, maskCv) {
   g2.filter = 'none';
   g2.textAlign = 'center';
   g2.textBaseline = 'middle';
+  if (faceData && faceData.pts) drawFurItems(g2, faceData.pts, W, H, false, faceData.roll || 0); // 手绘头饰
   settings.stickers.forEach(function (id) {
     var st = idOf(STICKERS, id);
     var x = st.x * W, y = st.y * H, size = Math.round(W * st.s * settings.stickerSize);
+    if (st.draw) return; // 手绘头饰已在上面画过
     if (faceData && faceData.box && st.fx !== undefined) { // 跟脸贴饰:锚点相对脸框,随头部倾斜旋转
       x = (faceData.box.x + st.fx * faceData.box.w) * W;
       y = (faceData.box.y + st.fy * faceData.box.h) * H;
@@ -987,7 +1003,7 @@ function drawPrint(g, shape) {
   g.save();
   g.translate(vx, vy);
   g.rotate(tp.value.rot * Math.PI / 180);
-  g.fillStyle = settings.valueColor || '#1c1a17';
+  g.fillStyle = settings.valueColor || settings.inkColor || '#1c1a17';
   g.textAlign = 'left';
   g.font = '600 ' + vs + 'px ' + KAITI;
   g.fillText(settings.value, 0, 0);
@@ -1000,7 +1016,7 @@ function drawPrint(g, shape) {
   g.save();
   g.translate(ix, iy);
   g.rotate(tp.issuer.rot * Math.PI / 180);
-  g.fillStyle = '#1c1a17';
+  g.fillStyle = settings.inkColor || '#1c1a17';
   g.textAlign = 'right';
   g.font = '600 ' + is_ + 'px ' + KAITI;
   g.fillText(settings.issuer, 0, 0);
@@ -1661,6 +1677,9 @@ var lastFaceBox = null, faceTs = 0, faceT = 0, faceStkPool = [];
 function faceStickersOn() {
   return settings.stickers.some(function (id) { var s = idOf(STICKERS, id); return s && s.fx !== undefined; });
 }
+function drawStkOn() {
+  return settings.stickers.some(function (id) { var s = idOf(STICKERS, id); return s && s.draw; });
+}
 
 // FaceLandmarker 点集 → blaze 风格脸框(眉眼上缘到下巴),老锚点直接沿用
 function lmBox(lms) {
@@ -1724,6 +1743,50 @@ function drawMakeupShapes(g, pts, W, H, mirror, roll) {
   g.restore();
 }
 
+// 手绘头饰:毛绒耳包/发箍(耳廓点 234/454 定位,额顶 10 做弓顶)
+function drawFurItems(g, pts, W, H, mirror, roll) {
+  if (!pts || pts.length < 468) return;
+  var P = function (i) {
+    var u = pts[i][0], v = pts[i][1];
+    if (mirror) u = 1 - u;
+    return [u * W, v * H];
+  };
+  var earL = P(234), earR = P(454), top = P(10);
+  var re = P(159), le = P(386);
+  var cx = (re[0] + le[0]) / 2, cy = (re[1] + le[1]) / 2;
+  var fw = Math.abs(earR[0] - earL[0]);
+  var hasEar = settings.stickers.indexOf('earmuff') >= 0;
+  var hasBand = settings.stickers.indexOf('headband') >= 0;
+  if (!hasEar && !hasBand) return;
+  g.save();
+  g.translate(cx, cy);
+  g.rotate(mirror ? -roll : roll);
+  g.translate(-cx, -cy);
+  if (hasEar || hasBand) {
+    g.strokeStyle = hasBand ? '#d4636e' : '#e9cdb9';
+    g.lineWidth = hasBand ? fw * 0.05 : fw * 0.06;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.moveTo(earL[0], earL[1] - fw * 0.06);
+    g.quadraticCurveTo((earL[0] + earR[0]) / 2, top[1] - fw * 0.24, earR[0], earR[1] - fw * 0.06);
+    g.stroke();
+  }
+  if (hasEar) {
+    [earL, earR].forEach(function (e) {
+      g.fillStyle = '#f3d9c8';
+      g.beginPath(); g.arc(e[0], e[1] + fw * 0.02, fw * 0.11, 0, 6.2832); g.fill();
+      g.fillStyle = 'rgba(214,150,140,.45)';
+      g.beginPath(); g.arc(e[0], e[1] + fw * 0.02, fw * 0.055, 0, 6.2832); g.fill();
+    });
+  }
+  if (hasBand) { // 发箍配一只蝴蝶结
+    g.font = Math.round(fw * 0.16) + 'px ' + EMOJI;
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText('🎀', earR[0] - fw * 0.1, top[1] + fw * 0.03);
+  }
+  g.restore();
+}
+
 function makeupPtsToScreen(lms, mirror) {
   var r = els.video.getBoundingClientRect();
   var vw = els.video.videoWidth, vh = els.video.videoHeight;
@@ -1739,13 +1802,18 @@ function makeupPtsToScreen(lms, mirror) {
 }
 
 function drawMakeup(lm) {
-  if (!settings.makeup.length) { clearMakeup(); return; }
+  var hasMakeup = settings.makeup.length, hasFur = drawStkOn();
+  if (!hasMakeup && !hasFur) { clearMakeup(); return; }
   var r = els.video.getBoundingClientRect();
   els.makeupCv.width = r.width; els.makeupCv.height = r.height;
   var mg = els.makeupCv.getContext('2d');
-  mg.filter = 'blur(1.5px)'; // 妆要柔
   var m = makeupPtsToScreen(lm.lm, els.video.classList.contains('mirrored'));
-  drawMakeupShapes(mg, m.pts, m.w, m.h, false, lm.roll);
+  if (hasMakeup) {
+    mg.filter = 'blur(1.5px)'; // 妆要柔
+    drawMakeupShapes(mg, m.pts, m.w, m.h, false, lm.roll);
+    mg.filter = 'none';
+  }
+  if (hasFur) drawFurItems(mg, m.pts, m.w, m.h, false, lm.roll);
 }
 
 function clearMakeup() {
@@ -1757,7 +1825,7 @@ function faceLoop() {
   var now = +new Date();
   if (!MP.face || now - faceT < 150) return;
   faceT = now;
-  if (els.camScreen.classList.contains('hidden') || !els.video.videoWidth || (!faceStickersOn() && !settings.makeup.length)) { hideFaceStk(); clearMakeup(); return; }
+  if (els.camScreen.classList.contains('hidden') || !els.video.videoWidth || (!faceStickersOn() && !drawStkOn() && !settings.makeup.length)) { hideFaceStk(); clearMakeup(); return; }
   var res;
   try { res = MP.face.detectForVideo(els.video, ++faceTs); } catch (e) { return; }
   var lms = res && res.faceLandmarks && res.faceLandmarks[0];
@@ -1779,7 +1847,7 @@ function drawFaceStk(bb) {
   var fx = bb.x, roll = bb.roll || 0;
   if (els.video.classList.contains('mirrored')) { fx = 1 - (bb.x + bb.w); roll = -roll; }
   var sel = settings.stickers.map(function (id) { return idOf(STICKERS, id); })
-    .filter(function (s) { return s && s.fx !== undefined; });
+    .filter(function (s) { return s && s.fx !== undefined && !s.draw; }); // 手绘项走妆层
   while (faceStkPool.length < sel.length) {
     var sp = document.createElement('span');
     els.faceLayer.appendChild(sp);
@@ -2152,8 +2220,12 @@ function applyTemplate(t) {
   settings.issuerSub = t.issuerSub;
   settings.value = t.value;
   settings.valueColor = t.valueColor;
+  settings.inkColor = t.ink || '';
+  if (t.beauty) settings.beauty = t.beauty;
+  if (t.markInk) settings.markInk = t.markInk;
   ['paper', 'backdrop', 'shape', 'window', 'perf', 'cut', 'mark', 'shutter'].forEach(function (k) { settings[k] = t[k]; });
   applyStyleCommon();
+  els.video.style.filter = idOf(BEAUTY, settings.beauty).css;
 }
 function applyStyle(s) {
   settings.styleId = s.id;
