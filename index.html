@@ -195,6 +195,35 @@ body{
 .album-empty .big{font-size:64px}
 .album-empty p{font-size:16px;color:#6d6350}
 .album-empty .sub{font-size:13px;color:#a3987e;margin-bottom:14px}
+#albumGrid.selecting .cell{cursor:pointer}
+#albumGrid.selecting .cell::before{
+  content:'';position:absolute;right:6px;top:6px;width:22px;height:22px;border-radius:50%;
+  background:rgba(255,255,255,.75);box-shadow:0 1px 4px rgba(0,0,0,.2);
+}
+#albumGrid.selecting .cell.sel::before{
+  content:'✓';background:var(--accent);color:#fff;font-size:14px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;
+}
+.album-selbar{
+  display:flex;align-items:center;justify-content:space-around;gap:4px;
+  padding:8px 14px calc(env(safe-area-inset-bottom,0px) + 10px);
+  border-top:1px dashed #d8cbae;background:var(--paper);
+}
+.album-selbar .text-btn{font-size:15px}
+.sel-count{font-size:13px;color:#6d6350;min-width:56px;text-align:left}
+
+/* ————— 吻痕精修 ————— */
+.kiss-editor{
+  position:fixed;inset:0;z-index:35;background:rgba(12,10,6,.88);backdrop-filter:blur(4px);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px;
+}
+.kiss-editor .hint{color:#cfc6ad;font-size:13px;text-align:center}
+#kissCv{
+  touch-action:none;cursor:crosshair;border-radius:6px;max-width:86vw;max-height:50vh;
+  background:repeating-conic-gradient(#d8d0be 0 25%,#c4baa2 0 50%) 0 0/24px 24px;
+}
+.kiss-editor .slider-row{color:#cfc6ad;width:min(320px,80vw)}
+.kiss-editor .viewer-actions{display:flex;gap:6px}
 
 /* ————— 查看大图 ————— */
 .viewer{
@@ -255,6 +284,7 @@ body{
     <button id="saveBtn" class="primary-btn">📮 收进邮册</button>
     <button id="editBtn" class="text-btn">✏️ 定制</button>
     <button id="downloadBtn" class="text-btn">下载</button>
+    <button id="stickerBtn" class="text-btn">贴纸</button>
     <button id="shareBtn" class="text-btn">分享</button>
   </footer>
 </section>
@@ -318,14 +348,35 @@ body{
   </div>
 </div>
 
+<!-- 吻痕精修:色度抠图后画笔修边 -->
+<div id="kissEditor" class="kiss-editor hidden">
+  <div class="hint">涂掉不要的部分 · 抠坏了用「还原」涂回来</div>
+  <canvas id="kissCv"></canvas>
+  <div class="chips">
+    <button id="kissEraseBtn" class="chip on">🧽 擦除</button>
+    <button id="kissKeepBtn" class="chip">还原</button>
+  </div>
+  <label class="slider-row">笔刷<input type="range" id="kissBrushRange" min="6" max="48" value="18"></label>
+  <div class="viewer-actions">
+    <button id="kissCancelBtn" class="text-btn light">取消</button>
+    <button id="kissOkBtn" class="text-btn light">完成 💋</button>
+  </div>
+</div>
+
 <!-- ③ 邮册屏 -->
 <section id="albumScreen" class="screen hidden">
   <header class="album-topbar">
     <button id="backBtn" class="icon-btn dark" aria-label="返回相机">←</button>
     <div class="album-title">我的邮册 <span id="albumCount2"></span></div>
-    <span style="width:44px;flex:none"></span>
+    <button id="organizeBtn" class="text-btn" hidden>整理</button>
   </header>
   <div id="albumGrid" class="album-grid"></div>
+  <div id="albumSelBar" class="album-selbar hidden">
+    <span id="selCount" class="sel-count">已选 0</span>
+    <button id="selAllBtn" class="text-btn">全选</button>
+    <button id="selShareBtn" class="text-btn">分享</button>
+    <button id="selDelBtn" class="text-btn danger">删除</button>
+  </div>
   <div id="albumEmpty" class="album-empty hidden">
     <div class="big">📮</div>
     <p>邮册还空着</p>
@@ -612,6 +663,8 @@ var els = {};
  'stampCanvas', 'cutter', 'stampHint', 'stampActions', 'retakeBtn', 'saveBtn', 'downloadBtn', 'editBtn',
  'albumBtn', 'albumBadge', 'flipBtn', 'fxBtn', 'uploadBtn', 'shutterBtn', 'backBtn', 'albumGrid',
  'albumEmpty', 'emptyBackBtn', 'albumCount2', 'viewer', 'viewerImg',
+ 'organizeBtn', 'albumSelBar', 'selCount', 'selAllBtn', 'selShareBtn', 'selDelBtn', 'stickerBtn',
+ 'kissEditor', 'kissCv', 'kissEraseBtn', 'kissKeepBtn', 'kissBrushRange', 'kissCancelBtn', 'kissOkBtn',
  'viewerDownload', 'viewerDelete', 'viewerClose', 'viewerShare', 'toast',
  'shareBtn',
  'drawer', 'drawerMask', 'drawerClose',
@@ -2029,17 +2082,79 @@ function persist() {
 function updateBadge() {
   els.albumBadge.textContent = album.length;
   els.albumBadge.classList.toggle('hidden', !album.length);
+  els.organizeBtn.hidden = !album.length;
+  if (!album.length && selecting) setSelecting(false);
+}
+
+/* ————— 邮册整理:多选 → 拼成整版分享 / 批量删除 ————— */
+var selecting = false, selIds = {};
+function setSelecting(on) {
+  selecting = on; selIds = {};
+  els.organizeBtn.textContent = on ? '取消' : '整理';
+  els.albumGrid.classList.toggle('selecting', on);
+  els.albumSelBar.classList.toggle('hidden', !on);
+  syncSelBar();
+  renderAlbum();
+}
+function syncSelBar() {
+  els.selCount.textContent = '已选 ' + Object.keys(selIds).length;
+}
+function toggleSel(id) {
+  if (selIds[id]) delete selIds[id]; else selIds[id] = 1;
+  syncSelBar();
+  renderAlbum();
+}
+// 多文件分享在 WebView 支持不稳,拼成一张"整版票"最稳也最好看
+function composeSheet(imgs) {
+  // ponytail: 列数按枚数取 1/2/3;超过 9 枚仍是一张 3 列长版,够用再说
+  var cols = imgs.length === 1 ? 1 : imgs.length === 2 || imgs.length === 4 ? 2 : 3;
+  var bw = 340, bh = 430, gap = 30;
+  var rows = Math.ceil(imgs.length / cols);
+  var c = document.createElement('canvas');
+  c.width = cols * bw + (cols + 1) * gap;
+  c.height = rows * bh + (rows + 1) * gap;
+  var g = c.getContext('2d');
+  g.fillStyle = '#f3ecdd';
+  g.fillRect(0, 0, c.width, c.height);
+  imgs.forEach(function (im, i) {
+    var col = i % cols, row = Math.floor(i / cols);
+    var k = Math.min(bw / im.width, bh / im.height);
+    var w = im.width * k, h = im.height * k;
+    var cx = gap + col * (bw + gap) + bw / 2, cy = gap + row * (bh + gap) + bh / 2;
+    g.save();
+    g.translate(cx, cy);
+    g.rotate((i % 2 ? 1 : -1) * 1.6 * Math.PI / 180); // 沿用邮册的歪贴趣味
+    g.drawImage(im, -w / 2, -h / 2, w, h);
+    g.restore();
+  });
+  return c;
+}
+async function shareSelected() {
+  var items = album.filter(function (s) { return selIds[s.id]; });
+  if (!items.length) { toast('先选几枚邮票'); return; }
+  var imgs = (await Promise.all(items.map(function (st) {
+    return new Promise(function (res) {
+      var im = new Image();
+      im.onload = function () { res(im); };
+      im.onerror = function () { res(null); };
+      im.src = st.img;
+    });
+  }))).filter(Boolean);
+  if (!imgs.length) { toast('图片读不出来'); return; }
+  shareImage(await canvasBlob(composeSheet(imgs)), '邮票整版_' + ts() + '.png');
 }
 
 function renderAlbum() {
   els.albumGrid.innerHTML = '';
   album.forEach(function (st) {
     var cell = document.createElement('div');
-    cell.className = 'cell';
+    cell.className = 'cell' + (selecting && selIds[st.id] ? ' sel' : '');
     var img = document.createElement('img');
     img.src = st.img;
     img.alt = '邮票';
-    img.addEventListener('click', function () { openViewer(st); });
+    img.addEventListener('click', function () {
+      if (selecting) toggleSel(st.id); else openViewer(st);
+    });
     cell.appendChild(img);
     els.albumGrid.appendChild(cell);
   });
@@ -2588,6 +2703,11 @@ els.editBtn.addEventListener('click', function () { openDrawer(); });
 els.downloadBtn.addEventListener('click', function () {
   download(composeOutput().toDataURL('image/png'), filePrefix() + '_' + ts() + '.png');
 });
+// 贴纸:齿孔/外形外全是透明,stampCanvas 直接存 PNG 给手账 app 用
+els.stickerBtn.addEventListener('click', function () {
+  download(els.stampCanvas.toDataURL('image/png'), filePrefix() + '_贴纸_' + ts() + '.png');
+  toast('透明底贴纸已下载');
+});
 els.shareBtn.addEventListener('click', async function () {
   shareImage(await canvasBlob(composeOutput()), filePrefix() + '_' + ts() + '.png');
 });
@@ -2595,6 +2715,25 @@ els.viewerShare.addEventListener('click', function () {
   if (viewing) shareImage(dataURLBlob(viewing.img), '邮票_' + (viewing.date || '').slice(0, 10) + '.jpg');
 });
 els.albumBtn.addEventListener('click', function () { show(els.albumScreen); });
+els.organizeBtn.addEventListener('click', function () { setSelecting(!selecting); });
+els.selAllBtn.addEventListener('click', function () {
+  var all = album.length && Object.keys(selIds).length === album.length;
+  selIds = {};
+  if (!all) album.forEach(function (s) { selIds[s.id] = 1; });
+  syncSelBar();
+  renderAlbum();
+});
+els.selShareBtn.addEventListener('click', shareSelected);
+els.selDelBtn.addEventListener('click', function () {
+  var n = Object.keys(selIds).length;
+  if (!n) { toast('先选几枚邮票'); return; }
+  if (!confirm('撕掉这 ' + n + ' 枚邮票?')) return;
+  album = album.filter(function (x) { return !selIds[x.id]; });
+  persist();
+  updateBadge();
+  setSelecting(false);
+  toast('已从邮册移除');
+});
 els.backBtn.addEventListener('click', function () { show(els.camScreen); });
 els.emptyBackBtn.addEventListener('click', function () { show(els.camScreen); });
 els.viewerClose.addEventListener('click', closeViewer);
@@ -2632,26 +2771,103 @@ try {
   }
 } catch (e) {}
 
-// ponytail: "红色度×饱和度"阈值抠图,涂了口红效果最好;要精修得画笔蒙版,升级路径是接入分割模型
-function extractKiss(img) {
-  var iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
-  var W = 300, H = Math.max(1, Math.round(ih / iw * 300));
-  var c = document.createElement('canvas');
-  c.width = W; c.height = H;
-  var g = c.getContext('2d');
-  g.drawImage(img, 0, 0, W, H);
-  var d = g.getImageData(0, 0, W, H), p = d.data;
+// ponytail: "红色度×饱和度"阈值抠图,涂了口红效果最好;不精的地方画笔修边,
+// 还要更省心才值得上分割模型
+function chromaKey(src) { // ImageData → 抠好 alpha 的 ImageData(RGB 原样保留,还原笔刷才保真)
+  var d = new ImageData(src.width, src.height);
+  var s = src.data, p = d.data;
   for (var i = 0; i < p.length; i += 4) {
-    var mx = Math.max(p[i + 1], p[i + 2]);
-    var mn = Math.min(p[i + 1], p[i + 2]);
-    var red = p[i] - mx;                              // 红色超出其它通道的量
+    var mx = Math.max(s[i + 1], s[i + 2]);
+    var mn = Math.min(s[i + 1], s[i + 2]);
+    var red = s[i] - mx;                              // 红色超出其它通道的量
     var sat = mx ? (mx - mn) / mx : 0;                // 饱和度(皮肤低、口红高)
     var score = red * sat;
+    p[i] = s[i]; p[i + 1] = s[i + 1]; p[i + 2] = s[i + 2];
     p[i + 3] = score > 15 ? Math.min(255, (score - 15) * 255 / 45) : 0;
   }
-  g.putImageData(d, 0, 0);
-  return c.toDataURL('image/png');
+  return d;
 }
+
+/* 精修编辑器:擦除/还原画笔直接改 work 的 alpha */
+var kissEdit = null;
+function openKissEditor(img) {
+  var iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+  var W = 300, H = Math.max(1, Math.round(ih / iw * 300));
+  var raw = document.createElement('canvas');
+  raw.width = W; raw.height = H;
+  var rg = raw.getContext('2d');
+  rg.drawImage(img, 0, 0, W, H);
+  var keyed = chromaKey(rg.getImageData(0, 0, W, H));
+  kissEdit = {
+    W: W, H: H,
+    keyed: keyed,                                   // 刚抠好的基准,「还原」回到这里
+    work: new ImageData(new Uint8ClampedArray(keyed.data), W, H),
+    brush: +els.kissBrushRange.value, mode: 'erase', drag: false
+  };
+  els.kissCv.width = W; els.kissCv.height = H;
+  els.kissEditor.classList.remove('hidden');
+  paintKiss();
+}
+function paintKiss() {
+  els.kissCv.getContext('2d').putImageData(kissEdit.work, 0, 0);
+}
+function kissStroke(x, y) {
+  var e = kissEdit, p = e.work.data, o = e.keyed.data, r = e.brush;
+  var x0 = Math.max(0, Math.floor(x - r)), x1 = Math.min(e.W - 1, Math.ceil(x + r));
+  var y0 = Math.max(0, Math.floor(y - r)), y1 = Math.min(e.H - 1, Math.ceil(y + r));
+  for (var yy = y0; yy <= y1; yy++) {
+    for (var xx = x0; xx <= x1; xx++) {
+      var dx = xx - x, dy = yy - y;
+      if (dx * dx + dy * dy > r * r) continue;
+      var i = (yy * e.W + xx) * 4;
+      if (e.mode === 'erase') p[i + 3] = 0;
+      else { p[i] = o[i]; p[i + 1] = o[i + 1]; p[i + 2] = o[i + 2]; p[i + 3] = o[i + 3]; }
+    }
+  }
+  paintKiss();
+}
+function kissPos(ev) {
+  var r = els.kissCv.getBoundingClientRect();
+  return { x: (ev.clientX - r.left) * kissEdit.W / r.width, y: (ev.clientY - r.top) * kissEdit.H / r.height };
+}
+els.kissCv.addEventListener('pointerdown', function (ev) {
+  if (!kissEdit) return;
+  ev.preventDefault();
+  els.kissCv.setPointerCapture(ev.pointerId);
+  kissEdit.drag = true;
+  var pt = kissPos(ev); kissStroke(pt.x, pt.y);
+});
+els.kissCv.addEventListener('pointermove', function (ev) {
+  if (!kissEdit || !kissEdit.drag) return;
+  var pt = kissPos(ev); kissStroke(pt.x, pt.y);
+});
+['pointerup', 'pointercancel'].forEach(function (t) {
+  els.kissCv.addEventListener(t, function () { if (kissEdit) kissEdit.drag = false; });
+});
+els.kissBrushRange.addEventListener('input', function () { if (kissEdit) kissEdit.brush = +els.kissBrushRange.value; });
+els.kissEraseBtn.addEventListener('click', function () {
+  if (!kissEdit) return;
+  kissEdit.mode = 'erase';
+  els.kissEraseBtn.classList.add('on');
+  els.kissKeepBtn.classList.remove('on');
+});
+els.kissKeepBtn.addEventListener('click', function () {
+  if (!kissEdit) return;
+  kissEdit.mode = 'keep';
+  els.kissKeepBtn.classList.add('on');
+  els.kissEraseBtn.classList.remove('on');
+});
+els.kissCancelBtn.addEventListener('click', function () {
+  kissEdit = null;
+  els.kissEditor.classList.add('hidden');
+});
+els.kissOkBtn.addEventListener('click', function () {
+  if (!kissEdit) return;
+  var url = els.kissCv.toDataURL('image/png');
+  kissEdit = null;
+  els.kissEditor.classList.add('hidden');
+  setKissAsset(url);
+});
 function setKissAsset(dataURL) {
   kissImg = new Image();
   kissImg.src = dataURL;
@@ -2671,7 +2887,7 @@ els.kissFile.addEventListener('change', function () {
   var url = URL.createObjectURL(f);
   var img = new Image();
   img.onload = function () {
-    setKissAsset(extractKiss(img));
+    openKissEditor(img);
     URL.revokeObjectURL(url);
   };
   img.onerror = function () { toast('这张图读不出来'); URL.revokeObjectURL(url); };
