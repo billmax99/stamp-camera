@@ -14,6 +14,9 @@
 
 ## 已完成
 
+- [x] release 签名 APK:stamp-release.keystore(密码在 local.md,勿丢勿提交),
+      build.gradle 检测 keystore.properties 自动签名、缺文件回退 debug;
+      真机验证:覆盖安装、相机、点击对焦、出票全链路正常
 - [x] 真人像虚化:MediaPipe selfie_segmenter 打包进 APK 替换伪景深
       (面积护栏 2%~92% 之外回退伪景深,拍静物不出鬼图)
 - [x] 贴饰跟脸:BlazeFace 人脸检测(取景实时 overlay + 成片烙印),
@@ -26,7 +29,6 @@
 
 ## 待办
 
-- [高] release 签名 APK(替换 debug 签名,才能长期分发)
 - [中] iOS 版(需 Mac + Xcode + 开发者账号,`npx cap add ios`)
 - [中] 吻痕抠图精修:画笔蒙版手动修边(现阈值法,素唇效果一般)
 - [中] 贴饰跟脸体验细化:贴饰旋转随头部倾斜(BlazeFace 眼距关键点可算 roll 角)

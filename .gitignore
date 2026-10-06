@@ -16,3 +16,7 @@ local.md
 # 调试临时文件
 debug-*.png
 ui.xml
+
+# 签名密钥(绝不进库)
+stamp-release.keystore
+android/keystore.properties
