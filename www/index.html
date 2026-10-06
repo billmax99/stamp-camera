@@ -473,7 +473,10 @@ var BEAUTY = [
   { id: 'warm', name: '🔥 暖调', css: 'sepia(.2) saturate(1.14) contrast(1.03)' },
   { id: 'dreamy', name: '🌫 朦胧', css: 'blur(1.6px) brightness(1.08) saturate(1.05) contrast(.93)' },
   { id: 'mono', name: '🎬 黑白', css: 'grayscale(1) contrast(1.12) brightness(1.03)' },
-  { id: 'goth', name: '🌑 暗黑', css: 'brightness(.8) contrast(1.3) saturate(.55)', vig: 1 }
+  { id: 'goth', name: '🌑 暗黑', css: 'brightness(.8) contrast(1.3) saturate(.55)', vig: 1 },
+  // 水墨/水彩:css 只是取景近似预览,成片跑真正的逐像素处理(fx 字段,ponytail)
+  { id: 'ink', name: '🖋 水墨', css: 'grayscale(.85) brightness(1.1) contrast(.97)', fx: 'ink' },
+  { id: 'water', name: '🎨 水彩', css: 'saturate(1.28) brightness(1.05) contrast(.94)', fx: 'water' }
 ];
 
 // 背景虚化:px 为模糊半径,中心椭圆保持清晰(伪景深)
@@ -621,7 +624,88 @@ function grabFrame(src, sw, sh, mirror) {
   return c;
 }
 
-/* ============ 拍摄后处理:美白 + 景深虚化 + 贴饰 ============ */
+/* ============ 拍摄后处理:美白 + 景深虚化 + 艺术特效 + 贴饰 ============ */
+/* 水墨/水彩共用:亮度图 + Sobel 轮廓(58 万像素单次 <0.2s,只在拍摄时跑) */
+function lumArray(g, W, H) {
+  var d = g.getImageData(0, 0, W, H).data, L = new Float32Array(W * H);
+  for (var i = 0; i < W * H; i++) L[i] = d[i * 4] * 0.3 + d[i * 4 + 1] * 0.6 + d[i * 4 + 2] * 0.1;
+  return L;
+}
+function sobel(L, W, H) {
+  var E = new Float32Array(W * H);
+  for (var y = 1; y < H - 1; y++) for (var x = 1; x < W - 1; x++) {
+    var i = y * W + x;
+    var gx = -L[i - W - 1] - 2 * L[i - 1] - L[i + W - 1] + L[i - W + 1] + 2 * L[i + 1] + L[i + W + 1];
+    var gy = -L[i - W - 1] - 2 * L[i - W] - L[i - W + 1] + L[i + W - 1] + 2 * L[i + W] + L[i + W + 1];
+    E[i] = Math.sqrt(gx * gx + gy * gy);
+  }
+  return E;
+}
+// 水墨:亮度压墨 + 轮廓重墨,铺在宣纸底色上
+function fxInk(src) {
+  var W = src.width, H = src.height;
+  var sm = document.createElement('canvas');
+  sm.width = W; sm.height = H;
+  var sg = sm.getContext('2d', { willReadFrequently: true });
+  sg.filter = 'grayscale(1) blur(1.6px) brightness(1.04) contrast(1.18)';
+  sg.drawImage(src, 0, 0);
+  var L = lumArray(sg, W, H), E = sobel(L, W, H);
+  var out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  var og = out.getContext('2d');
+  var im = og.createImageData(W, H), p = im.data, base = 246;
+  for (var i = 0; i < W * H; i++) {
+    var ink = Math.min(1, Math.max(0, (1 - L[i] / 255) * 0.82 + E[i] / 255 * 1.35));
+    ink = ink * ink * (3 - 2 * ink); // smoothstep:中间调拉开,墨感更强
+    var j = i * 4;
+    p[j] = base - ink * (base - 26);
+    p[j + 1] = base - ink * (base - 30);
+    p[j + 2] = base - ink * (base - 38);
+    p[j + 3] = 255;
+  }
+  og.putImageData(im, 0, 0);
+  var fin = document.createElement('canvas');
+  fin.width = W; fin.height = H;
+  var fg = fin.getContext('2d');
+  fg.filter = 'blur(0.5px) contrast(1.03)';
+  fg.drawImage(out, 0, 0);
+  return fin;
+}
+// 水彩:缩放平滑 + 色阶量化分块 + 边缘颜料沉积 + 纸纹
+function fxWater(src) {
+  var W = src.width, H = src.height;
+  var sm = document.createElement('canvas');
+  sm.width = W; sm.height = H;
+  var sg = sm.getContext('2d', { willReadFrequently: true });
+  sg.filter = 'saturate(1.3) brightness(1.05)';
+  sg.drawImage(src, 0, 0);
+  var half = document.createElement('canvas');
+  half.width = Math.max(1, W / 3 | 0); half.height = Math.max(1, H / 3 | 0);
+  half.getContext('2d').drawImage(sm, 0, 0, half.width, half.height);
+  sg.filter = 'blur(1px) saturate(1.3) brightness(1.05)';
+  sg.drawImage(half, 0, 0, W, H);
+  var L = lumArray(sg, W, H), E = sobel(L, W, H);
+  var d = sg.getImageData(0, 0, W, H), p = d.data, q = 40;
+  for (var i = 0; i < W * H; i++) {
+    var j = i * 4, edge = Math.min(1, E[i] / 255 * 1.1);
+    p[j] = Math.round(p[j] / q) * q * 0.94 - edge * 14;
+    p[j + 1] = Math.round(p[j + 1] / q) * q * 0.96 - edge * 12;
+    p[j + 2] = Math.round(p[j + 2] / q) * q * 0.98 - edge * 8;
+  }
+  sg.putImageData(d, 0, 0);
+  var fin = document.createElement('canvas');
+  fin.width = W; fin.height = H;
+  var fg = fin.getContext('2d');
+  fg.filter = 'blur(0.4px) brightness(1.03)';
+  fg.drawImage(sm, 0, 0);
+  fg.filter = 'none';
+  fg.globalAlpha = 0.05; // 纸纹
+  fg.fillStyle = '#f2e8d4';
+  for (var k = 0; k < 2200; k++) fg.fillRect(Math.random() * W, Math.random() * H, 1.4, 1.4);
+  fg.globalAlpha = 1;
+  return fin;
+}
+
 /* faceCv: 脸框(canvas 归一化,来自拍摄时的人脸检测,可选)
    maskCv: 分割 alpha 掩码(canvas,人像区不透明,可选) */
 function processPhoto(c, faceCv, maskCv) {
@@ -665,6 +749,9 @@ function processPhoto(c, faceCv, maskCv) {
     vx.fillStyle = gv;
     vx.fillRect(0, 0, W2, H2);
   }
+  var artFx = idOf(BEAUTY, settings.beauty).fx;
+  if (artFx === 'ink') c = fxInk(c);
+  else if (artFx === 'water') c = fxWater(c);
   var g2 = c.getContext('2d');
   g2.filter = 'none';
   g2.textAlign = 'center';
