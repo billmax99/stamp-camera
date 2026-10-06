@@ -14,6 +14,8 @@
 
 ## 已完成
 
+- [x] 应用图标:邮戳红底+奶油齿孔邮票+红相机(矢量设计,CDP 确定性渲染
+      15 个 mipmap 尺寸,自适应背景色同步),真机应用信息页验证
 - [x] release 签名 APK:stamp-release.keystore(密码在 local.md,勿丢勿提交),
       build.gradle 检测 keystore.properties 自动签名、缺文件回退 debug;
       真机验证:覆盖安装、相机、点击对焦、出票全链路正常
