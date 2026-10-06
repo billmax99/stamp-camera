@@ -83,6 +83,12 @@ function arc(h, W, H) {
   for (const s of SHUTTER_STYLES) assert.ok('cls' in s && 'inner' in s, `快门样式缺字段: ${s.id}`);
   for (const b of BEAUTY.concat(BLUR_BG)) assert.ok(b.name && b.id != null, `美颜/虚化缺字段: ${JSON.stringify(b)}`);
   for (const s of STICKERS) for (const k of ['e', 'name', 'x', 'y', 's']) assert.ok(s[k] != null, `贴饰缺字段 ${k}`);
+  for (const s of STICKERS) if (s.fx !== undefined) {
+    // 跟脸贴饰:锚点相对脸框,fs 相对脸宽;fy 允许为负(头顶框外)
+    for (const k of ['fy', 'fs']) assert.ok(typeof s[k] === 'number', `跟脸贴饰 ${s.id} 缺 ${k}`);
+    assert.ok(s.fx >= 0 && s.fx <= 1, `跟脸贴饰 ${s.id} fx 越界`);
+    assert.ok(s.fs > 0 && s.fs <= 1.5, `跟脸贴饰 ${s.id} fs 越界`);
+  }
   for (const s of SIZE_PRESETS) assert.ok(s.k > 0.5 && s.k < 1.5, `邮票大小越界: ${JSON.stringify(s)}`);
   assert.ok(SHOOT_MODES.some(s => s.id === 'single') && SHOOT_MODES.some(s => s.id === 'sheet4'), '拍摄模式需含单张与四连张');
   assert.ok(PRODUCTS.some(p => p.id === 'stamp'), '纸品需含单枚邮票');

@@ -36,6 +36,8 @@ body{
 #grid9 .h2{left:0;right:0;top:66.66%;height:1px}
 #grid9 .v1{top:0;bottom:0;left:33.33%;width:1px}
 #grid9 .v2{top:0;bottom:0;left:66.66%;width:1px}
+#faceLayer{position:absolute;inset:0;pointer-events:none}
+#faceLayer span{position:absolute;transform:translate(-50%,-50%);filter:drop-shadow(0 2px 5px rgba(0,0,0,.35));will-change:left,top,font-size}
 .cam-topbar,.cam-bottombar{position:relative;z-index:2;display:flex;align-items:center}
 .cam-topbar{
   justify-content:space-between;
@@ -217,6 +219,7 @@ body{
   <video id="video" autoplay playsinline muted></video>
   <div id="vfWrap" class="hidden" aria-hidden="true"><div id="vfOuter"></div><div id="vfInner"></div></div>
   <div id="grid9" class="hidden" aria-hidden="true"><div class="h1"></div><div class="h2"></div><div class="v1"></div><div class="v2"></div></div>
+  <div id="faceLayer" aria-hidden="true"></div>
   <header class="cam-topbar">
     <button id="albumBtn" class="icon-btn" aria-label="我的邮册">📮<span id="albumBadge" class="badge hidden">0</span></button>
     <div class="cam-title"><b>邮票相机</b></div>
@@ -475,13 +478,15 @@ var BLUR_BG = [
   { id: '2', name: '强虚化', px: 8 }
 ];
 
-// 贴饰:x/y 为照片比例,s 为宽度比例
+// 贴饰:x/y 为照片比例,s 为宽度比例;
+// fx/fy/fs(可选)= 跟脸锚点:相对脸框左上角的比例(fs 相对脸宽,可负=框外),
+// 检测到脸时按脸摆放,没检测到或 MP 不可用回退 x/y
 var STICKERS = [
-  { id: 'crown', e: '👑', name: '皇冠', x: 0.5, y: 0.10, s: 0.30 },
-  { id: 'bow', e: '🎀', name: '蝴蝶结', x: 0.5, y: 0.11, s: 0.24 },
-  { id: 'cat', e: '🐱', name: '猫耳', x: 0.5, y: 0.05, s: 0.52 },
-  { id: 'glasses', e: '🕶️', name: '墨镜', x: 0.5, y: 0.30, s: 0.56 },
-  { id: 'flower', e: '🌸', name: '小花', x: 0.86, y: 0.14, s: 0.22 },
+  { id: 'crown', e: '👑', name: '皇冠', x: 0.5, y: 0.10, s: 0.30, fx: 0.5, fy: -0.18, fs: 0.62 },
+  { id: 'bow', e: '🎀', name: '蝴蝶结', x: 0.5, y: 0.11, s: 0.24, fx: 0.88, fy: -0.06, fs: 0.42 },
+  { id: 'cat', e: '🐱', name: '猫耳', x: 0.5, y: 0.05, s: 0.52, fx: 0.5, fy: -0.22, fs: 0.95 },
+  { id: 'glasses', e: '🕶️', name: '墨镜', x: 0.5, y: 0.30, s: 0.56, fx: 0.5, fy: 0.38, fs: 0.9 },
+  { id: 'flower', e: '🌸', name: '小花', x: 0.86, y: 0.14, s: 0.22, fx: 0.97, fy: 0.02, fs: 0.35 },
   { id: 'sparkle', e: '✨', name: '星光', x: 0.14, y: 0.80, s: 0.26 }
 ];
 
@@ -556,7 +561,7 @@ var settings = {
 };
 
 var els = {};
-['video', 'vfWrap', 'vfOuter', 'vfInner', 'focusRing', 'torchBtn', 'grid9', 'gridChips', 'flash', 'timerBtn', 'countdown', 'fileInput', 'camScreen', 'stampScreen', 'albumScreen',
+['video', 'vfWrap', 'vfOuter', 'vfInner', 'focusRing', 'torchBtn', 'grid9', 'gridChips', 'faceLayer', 'flash', 'timerBtn', 'countdown', 'fileInput', 'camScreen', 'stampScreen', 'albumScreen',
  'stampCanvas', 'cutter', 'stampHint', 'stampActions', 'retakeBtn', 'saveBtn', 'downloadBtn', 'editBtn',
  'albumBtn', 'albumBadge', 'flipBtn', 'fxBtn', 'uploadBtn', 'shutterBtn', 'backBtn', 'albumGrid',
  'albumEmpty', 'emptyBackBtn', 'albumCount2', 'viewer', 'viewerImg',
@@ -603,8 +608,10 @@ function grabFrame(src, sw, sh, mirror) {
   return c;
 }
 
-/* ============ 拍摄后处理:美白 + 伪景深虚化 + 贴饰 ============ */
-function processPhoto(c) {
+/* ============ 拍摄后处理:美白 + 景深虚化 + 贴饰 ============ */
+/* faceCv: 脸框(canvas 归一化,来自拍摄时的人脸检测,可选)
+   maskCv: 分割 alpha 掩码(canvas,人像区不透明,可选) */
+function processPhoto(c, faceCv, maskCv) {
   var W = c.width, H = c.height;
   var bf = idOf(BEAUTY, settings.beauty).css;
   var blur = idOf(BLUR_BG, settings.blurBg).px;
@@ -614,19 +621,23 @@ function processPhoto(c) {
     var og = out.getContext('2d');
     og.filter = (blur ? 'blur(' + blur + 'px) ' : '') + bf;
     og.drawImage(c, 0, 0);
-    if (blur) { // 中心椭圆保持清晰(伪景深)
+    if (blur) { // 人像保持清晰:有分割掩码用真抠图,没有退回中心椭圆伪景深
       var mk = document.createElement('canvas');
       mk.width = W; mk.height = H;
       var mg = mk.getContext('2d');
       mg.filter = bf;
       mg.drawImage(c, 0, 0);
-      var rg = mg.createRadialGradient(W / 2, H * 0.42, Math.min(W, H) * 0.16, W / 2, H * 0.42, Math.max(W, H) * 0.5);
-      rg.addColorStop(0, 'rgba(0,0,0,1)');
-      rg.addColorStop(0.66, 'rgba(0,0,0,1)');
-      rg.addColorStop(1, 'rgba(0,0,0,0)');
       mg.globalCompositeOperation = 'destination-in';
-      mg.fillStyle = rg;
-      mg.fillRect(0, 0, W, H);
+      if (maskCv) {
+        mg.drawImage(maskCv, 0, 0, W, H); // 256 边界放大时自带柔和过渡
+      } else {
+        var rg = mg.createRadialGradient(W / 2, H * 0.42, Math.min(W, H) * 0.16, W / 2, H * 0.42, Math.max(W, H) * 0.5);
+        rg.addColorStop(0, 'rgba(0,0,0,1)');
+        rg.addColorStop(0.66, 'rgba(0,0,0,1)');
+        rg.addColorStop(1, 'rgba(0,0,0,0)');
+        mg.fillStyle = rg;
+        mg.fillRect(0, 0, W, H);
+      }
       og.filter = 'none';
       og.drawImage(mk, 0, 0);
     }
@@ -638,9 +649,14 @@ function processPhoto(c) {
   g2.textBaseline = 'middle';
   settings.stickers.forEach(function (id) {
     var st = idOf(STICKERS, id);
-    var size = Math.round(W * st.s * settings.stickerSize);
+    var x = st.x * W, y = st.y * H, size = Math.round(W * st.s * settings.stickerSize);
+    if (faceCv && st.fx !== undefined) { // 跟脸贴饰:锚点相对脸框
+      x = (faceCv.x + st.fx * faceCv.w) * W;
+      y = (faceCv.y + st.fy * faceCv.h) * H;
+      size = Math.round(faceCv.w * W * st.fs * settings.stickerSize);
+    }
     g2.font = size + 'px ' + EMOJI;
-    g2.fillText(st.e, st.x * W, st.y * H);
+    g2.fillText(st.e, x, y);
   });
   return c;
 }
@@ -1399,6 +1415,120 @@ els.torchBtn.addEventListener('click', function () {
   });
 });
 
+/* ============ MediaPipe 增强:人脸检测(贴饰跟脸) + 人像分割(真虚化) ============
+   模型与 wasm 打包在 /vendor/(APK assets);加载失败(网页版 file:// 或老内核)
+   静默降级:贴饰回固定坐标,虚化回伪景深,不影响任何主流程 */
+var MP = { face: null, seg: null, ok: false };
+if (location.protocol !== 'file:') {
+  import('/vendor/vision_bundle.mjs').then(function (v) {
+  return v.FilesetResolver.forVisionTasks('/vendor/wasm').then(function (fr) {
+    // 全部固定 CPU:GPU delegate 在本 WebView 的 VIDEO 模式下报 graph 错误(真机实测)
+    return Promise.all([
+      v.FaceDetector.createFromOptions(fr, {
+        baseOptions: { modelAssetPath: '/vendor/models/blaze_face_short_range.tflite' },
+        runningMode: 'VIDEO', minDetectionConfidence: 0.4
+      }),
+      v.ImageSegmenter.createFromOptions(fr, {
+        baseOptions: { modelAssetPath: '/vendor/models/selfie_segmenter.tflite' },
+        runningMode: 'VIDEO', outputCategoryMask: true, outputConfidenceMasks: false
+      })
+    ]);
+  });
+  }).then(function (r) { MP.face = r[0]; MP.seg = r[1]; MP.ok = true; })
+    .catch(function () { MP.ok = false; });
+}
+
+// 分割:返回人像 alpha 掩码 canvas(失败/不可信返回 null,走伪景深)
+// selfie_segmenter categoryMask 官方语义:1=人像 0=背景;
+// 模型对无人场景(拍静物)输出不可信(真机实测桌面帧全 1),面积护栏兜底
+var mpTs = 1000;
+function segmentPhoto(c) {
+  if (!MP.seg) return Promise.resolve(null);
+  try {
+    var r = MP.seg.segmentForVideo(c, ++mpTs);
+    var cm = r.categoryMask, out = null;
+    if (cm) {
+      var w = cm.width, h = cm.height, d = cm.getAsUint8Array(), ones = 0, i;
+      for (i = 0; i < w * h; i++) if (d[i]) ones++;
+      var ratio = ones / (w * h);
+      if (ratio > 0.02 && ratio < 0.92) { // 人像占比离谱=分割不可信,回退伪景深
+        var mc = document.createElement('canvas');
+        mc.width = w; mc.height = h;
+        var q = mc.getContext('2d');
+        var im = q.createImageData(w, h), p = im.data;
+        for (i = 0; i < w * h; i++) {
+          p[i * 4] = p[i * 4 + 1] = p[i * 4 + 2] = 255;
+          p[i * 4 + 3] = d[i] ? 255 : 0;
+        }
+        q.putImageData(im, 0, 0);
+        out = mc;
+      }
+    }
+    r.close();
+    return Promise.resolve(out);
+  } catch (e) { return Promise.resolve(null); }
+}
+
+/* 贴饰跟脸:约 150ms 检测一次(ponytail: 不插值,脸快速移动时贴饰会跳,
+   升级路径是每帧检测 + 位置低通滤波) */
+var lastFaceBox = null, faceTs = 0, faceT = 0, faceStkPool = [];
+
+function faceStickersOn() {
+  return settings.stickers.some(function (id) { var s = idOf(STICKERS, id); return s && s.fx !== undefined; });
+}
+
+function faceLoop() {
+  requestAnimationFrame(faceLoop);
+  var now = +new Date();
+  if (!MP.face || now - faceT < 150) return;
+  faceT = now;
+  if (els.camScreen.classList.contains('hidden') || !els.video.videoWidth || !faceStickersOn()) { hideFaceStk(); return; }
+  var res;
+  try { res = MP.face.detectForVideo(els.video, ++faceTs); } catch (e) { return; }
+  var det = res && res.detections && res.detections[0];
+  if (!det || !det.boundingBox) { lastFaceBox = null; hideFaceStk(); return; }
+  var b = det.boundingBox, vw = els.video.videoWidth, vh = els.video.videoHeight;
+  lastFaceBox = { x: b.originX / vw, y: b.originY / vh, w: b.width / vw, h: b.height / vh };
+  drawFaceStk(lastFaceBox);
+}
+requestAnimationFrame(faceLoop);
+
+function drawFaceStk(bb) {
+  var r = els.video.getBoundingClientRect();
+  var vw = els.video.videoWidth, vh = els.video.videoHeight;
+  var k = Math.max(r.width / vw, r.height / vh);
+  var ox = (r.width - vw * k) / 2, oy = (r.height - vh * k) / 2;
+  var fx = bb.x;
+  if (els.video.classList.contains('mirrored')) fx = 1 - (bb.x + bb.w);
+  var sel = settings.stickers.map(function (id) { return idOf(STICKERS, id); })
+    .filter(function (s) { return s && s.fx !== undefined; });
+  while (faceStkPool.length < sel.length) {
+    var sp = document.createElement('span');
+    els.faceLayer.appendChild(sp);
+    faceStkPool.push(sp);
+  }
+  faceStkPool.forEach(function (sp, i) {
+    if (i >= sel.length) { sp.style.display = 'none'; return; }
+    var s = sel[i];
+    sp.style.display = 'block';
+    sp.textContent = s.e;
+    sp.style.left = (ox + (fx + s.fx * bb.w) * vw * k) + 'px';
+    sp.style.top = (oy + (bb.y + s.fy * bb.h) * vh * k) + 'px';
+    sp.style.fontSize = Math.max(14, s.fs * bb.w * vw * k * settings.stickerSize) + 'px';
+  });
+}
+
+function hideFaceStk() { faceStkPool.forEach(function (sp) { sp.style.display = 'none'; }); }
+
+/* 拍摄瞬间的脸框(video 归一化)→ 成片 canvas 归一化(grabFrame 中央 3:4 裁切系) */
+function faceToCanvas(bb, sw, sh, mirror) {
+  var tr = 660 / 880, sx = 0, sy = 0, sW = sw, sH = sh, t;
+  if (sw / sh > tr) { sW = sh * tr; sx = (sw - sW) / 2; } else { sH = sw / tr; sy = (sh - sH) / 2; }
+  var u1 = (bb.x * sw - sx) / sW, u2 = ((bb.x + bb.w) * sw - sx) / sW;
+  if (mirror) { t = u1; u1 = 1 - u2; u2 = 1 - t; }
+  return { x: u1, y: (bb.y * sh - sy) / sH, w: u2 - u1, h: bb.h * sh / sH };
+}
+
 /* 首帧到了才亮画面:空 video 在 WebView 里是一整屏灰色播放按钮占位图 */
 els.video.addEventListener('playing', function () {
   els.video.classList.add('live');
@@ -1452,13 +1582,22 @@ function watchDarkness() {
   }, 2000);
 }
 
+var shooting = false;
 function shutter() {
   if (afBusy) { toast('对焦中,松开再拍'); return; }
+  if (shooting) return;
   if (!els.video.videoWidth) { toast('相机没准备好,试试左下角导入照片'); return; }
   els.flash.classList.remove('on');
   void els.flash.offsetWidth;
   els.flash.classList.add('on');
-  beginStamp(processPhoto(grabFrame(els.video, els.video.videoWidth, els.video.videoHeight, facing === 'user')));
+  var sw = els.video.videoWidth, sh = els.video.videoHeight, mirror = facing === 'user';
+  var frame = grabFrame(els.video, sw, sh, mirror);
+  var faceCv = (lastFaceBox && faceStickersOn()) ? faceToCanvas(lastFaceBox, sw, sh, mirror) : null;
+  shooting = true;
+  segmentPhoto(frame).then(function (mk) { // 分割同步跑,失败返回 null 走伪景深
+    shooting = false;
+    beginStamp(processPhoto(frame, faceCv, mk));
+  });
 }
 
 /* 定时拍摄:倒计时结束自动快门 */
@@ -2014,7 +2153,9 @@ els.fileInput.addEventListener('change', function () {
   var url = URL.createObjectURL(f);
   var img = new Image();
   img.onload = function () {
-    beginStamp(processPhoto(grabFrame(img, img.naturalWidth, img.naturalHeight, false)));
+    var frame = grabFrame(img, img.naturalWidth, img.naturalHeight, false);
+    // ponytail: 导入照片不做人脸检测(runningMode=VIDEO 只吃视频时间轴),贴饰回固定坐标
+    segmentPhoto(frame).then(function (mk) { beginStamp(processPhoto(frame, null, mk)); });
     URL.revokeObjectURL(url);
   };
   img.onerror = function () { toast('这张图读不出来'); URL.revokeObjectURL(url); };
