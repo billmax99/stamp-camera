@@ -416,7 +416,8 @@ var WEAR = [
   { id: 'scratch', name: '划痕' },
   { id: 'fold', name: '折痕' },
   { id: 'fade', name: '褪色' },
-  { id: 'stain', name: '污渍' }
+  { id: 'stain', name: '污渍' },
+  { id: 'grain', name: '颗粒' }
 ];
 
 // 邮票外形:win/cy 控制内窗大小与中心;inset/dy/fs 控制底部文字带(椭圆/唇形票文字内收)
@@ -461,14 +462,18 @@ var SHUTTER_STYLES = [
   { id: 'gold', name: '鎏金环', cls: 'sh-gold', inner: '' }
 ];
 
-// 美颜/色调:css 同时用于取景实时预览与拍照后处理(同行竞品的蓝调/暖调/电影感)
+// 美颜/色调:css 同时用于取景实时预览与拍照后处理(同行竞品的蓝调/暖调/电影感);
+// vig=1 加暗角(processPhoto 画,预览不显示)
 var BEAUTY = [
   { id: '0', name: '关闭', css: '' },
   { id: '1', name: '自然', css: 'brightness(1.06) saturate(1.08)' },
   { id: '2', name: '明显', css: 'brightness(1.12) saturate(1.12)' },
   { id: 'film', name: '🎞 电影感', css: 'contrast(1.07) saturate(.85) sepia(.14) hue-rotate(-8deg) brightness(1.02)' },
   { id: 'cool', name: '🧊 蓝调', css: 'saturate(.88) hue-rotate(14deg) brightness(1.03)' },
-  { id: 'warm', name: '🔥 暖调', css: 'sepia(.2) saturate(1.14) contrast(1.03)' }
+  { id: 'warm', name: '🔥 暖调', css: 'sepia(.2) saturate(1.14) contrast(1.03)' },
+  { id: 'dreamy', name: '🌫 朦胧', css: 'blur(1.6px) brightness(1.08) saturate(1.05) contrast(.93)' },
+  { id: 'mono', name: '🎬 黑白', css: 'grayscale(1) contrast(1.12) brightness(1.03)' },
+  { id: 'goth', name: '🌑 暗黑', css: 'brightness(.8) contrast(1.3) saturate(.55)', vig: 1 }
 ];
 
 // 背景虚化:px 为模糊半径,中心椭圆保持清晰(伪景深)
@@ -480,14 +485,22 @@ var BLUR_BG = [
 
 // 贴饰:x/y 为照片比例,s 为宽度比例;
 // fx/fy/fs(可选)= 跟脸锚点:相对脸框左上角的比例(fs 相对脸宽,可负=框外),
-// 检测到脸时按脸摆放,没检测到或 MP 不可用回退 x/y
+// 检测到脸时按脸摆放(随头部倾斜旋转),没检测到或 MP 不可用回退 x/y
 var STICKERS = [
   { id: 'crown', e: '👑', name: '皇冠', x: 0.5, y: 0.10, s: 0.30, fx: 0.5, fy: -0.18, fs: 0.62 },
   { id: 'bow', e: '🎀', name: '蝴蝶结', x: 0.5, y: 0.11, s: 0.24, fx: 0.88, fy: -0.06, fs: 0.42 },
   { id: 'cat', e: '🐱', name: '猫耳', x: 0.5, y: 0.05, s: 0.52, fx: 0.5, fy: -0.22, fs: 0.95 },
   { id: 'glasses', e: '🕶️', name: '墨镜', x: 0.5, y: 0.30, s: 0.56, fx: 0.5, fy: 0.38, fs: 0.9 },
   { id: 'flower', e: '🌸', name: '小花', x: 0.86, y: 0.14, s: 0.22, fx: 0.97, fy: 0.02, fs: 0.35 },
-  { id: 'sparkle', e: '✨', name: '星光', x: 0.14, y: 0.80, s: 0.26 }
+  { id: 'sparkle', e: '✨', name: '星光', x: 0.14, y: 0.80, s: 0.26 },
+  { id: 'hat', e: '👒', name: '草帽', x: 0.5, y: 0.06, s: 0.5, fx: 0.5, fy: -0.42, fs: 1.15 },
+  { id: 'gradcap', e: '🎓', name: '学士帽', x: 0.5, y: 0.06, s: 0.42, fx: 0.5, fy: -0.34, fs: 0.9 },
+  { id: 'headset', e: '🎧', name: '耳机', x: 0.5, y: 0.12, s: 0.5, fx: 0.5, fy: 0.05, fs: 1.1 },
+  { id: 'spec', e: '👓', name: '眼镜', x: 0.5, y: 0.30, s: 0.5, fx: 0.5, fy: 0.38, fs: 0.95 },
+  { id: 'rose', e: '🌹', name: '玫瑰', x: 0.12, y: 0.30, s: 0.2, fx: -0.08, fy: 0.5, fs: 0.42 },
+  { id: 'cherry', e: '🍒', name: '樱桃耳环', x: 0.88, y: 0.30, s: 0.18, fx: 1.05, fy: 0.45, fs: 0.38 },
+  { id: 'kiss', e: '💋', name: '唇印', x: 0.75, y: 0.42, s: 0.16, fx: 0.82, fy: 0.6, fs: 0.3 },
+  { id: 'necklace', e: '📿', name: '项链', x: 0.5, y: 0.55, s: 0.35, fx: 0.5, fy: 1.12, fs: 0.85 }
 ];
 
 // 邮票展示大小
@@ -643,6 +656,15 @@ function processPhoto(c, faceCv, maskCv) {
     }
     c = out;
   } // ponytail: 老内核无 ctx.filter 时美化自动跳过,不影响出票
+  if (idOf(BEAUTY, settings.beauty).vig) { // 暗角(暗黑风):边缘压暗
+    var W2 = c.width, H2 = c.height;
+    var vx = c.getContext('2d');
+    var gv = vx.createRadialGradient(W2 / 2, H2 * 0.46, Math.min(W2, H2) * 0.38, W2 / 2, H2 * 0.5, Math.max(W2, H2) * 0.72);
+    gv.addColorStop(0, 'rgba(0,0,0,0)');
+    gv.addColorStop(1, 'rgba(0,0,0,.52)');
+    vx.fillStyle = gv;
+    vx.fillRect(0, 0, W2, H2);
+  }
   var g2 = c.getContext('2d');
   g2.filter = 'none';
   g2.textAlign = 'center';
@@ -650,10 +672,17 @@ function processPhoto(c, faceCv, maskCv) {
   settings.stickers.forEach(function (id) {
     var st = idOf(STICKERS, id);
     var x = st.x * W, y = st.y * H, size = Math.round(W * st.s * settings.stickerSize);
-    if (faceCv && st.fx !== undefined) { // 跟脸贴饰:锚点相对脸框
+    if (faceCv && st.fx !== undefined) { // 跟脸贴饰:锚点相对脸框,随头部倾斜旋转
       x = (faceCv.x + st.fx * faceCv.w) * W;
       y = (faceCv.y + st.fy * faceCv.h) * H;
       size = Math.round(faceCv.w * W * st.fs * settings.stickerSize);
+      g2.save();
+      g2.translate(x, y);
+      g2.rotate(faceCv.roll || 0);
+      g2.font = size + 'px ' + EMOJI;
+      g2.fillText(st.e, 0, 0);
+      g2.restore();
+      return;
     }
     g2.font = size + 'px ' + EMOJI;
     g2.fillText(st.e, x, y);
@@ -969,7 +998,9 @@ function makeWear(seed) {
   for (i = 0; i < 5; i++) sc.push({ x1: R(0, 1), y1: R(0, 1), x2: R(0, 1), y2: R(0, 1), w: R(0.7, 2.2), a: R(0.14, 0.38), dark: rnd() < 0.4 });
   for (i = 0; i < 2; i++) fo.push({ vert: rnd() < 0.5, p: R(0.25, 0.75), a: R(0.10, 0.2) });
   for (i = 0; i < 2; i++) st.push({ x: R(0.15, 0.85), y: R(0.15, 0.85), rx: R(0.06, 0.16), ry: R(0.04, 0.12), rot: R(-1, 1) });
-  return { scratches: sc, folds: fo, stains: st };
+  var gr = [];
+  for (i = 0; i < 1600; i++) gr.push({ x: R(0, 1), y: R(0, 1), a: R(0.05, 0.16), light: rnd() < 0.45 });
+  return { scratches: sc, folds: fo, stains: st, grain: gr };
 }
 function drawWear(g, pr, win) {
   var f = current.fx, wear = settings.wear;
@@ -983,6 +1014,10 @@ function drawWear(g, pr, win) {
     g.fillRect(pr.x - 2, pr.y - 2, pr.w + 4, pr.h + 4);
     g.restore();
   }
+  if (wear.indexOf('grain') >= 0) f.grain.forEach(function (p) { // 胶片颗粒:黑白细点
+    g.fillStyle = p.light ? 'rgba(255,255,255,' + p.a + ')' : 'rgba(20,14,8,' + p.a + ')';
+    g.fillRect(X(p.x), Y(p.y), 1.3, 1.3);
+  });
   if (wear.indexOf('scratch') >= 0) f.scratches.forEach(function (s) {
     g.save();
     g.strokeStyle = s.dark ? 'rgba(28,18,8,' + s.a + ')' : 'rgba(255,255,255,' + s.a + ')';
@@ -1488,7 +1523,9 @@ function faceLoop() {
   var det = res && res.detections && res.detections[0];
   if (!det || !det.boundingBox) { lastFaceBox = null; hideFaceStk(); return; }
   var b = det.boundingBox, vw = els.video.videoWidth, vh = els.video.videoHeight;
-  lastFaceBox = { x: b.originX / vw, y: b.originY / vh, w: b.width / vw, h: b.height / vh };
+  var roll = 0, kp = det.keypoints || [];
+  if (kp.length >= 2) roll = Math.atan2(kp[1].y - kp[0].y, kp[1].x - kp[0].x); // 右眼→左眼
+  lastFaceBox = { x: b.originX / vw, y: b.originY / vh, w: b.width / vw, h: b.height / vh, roll: roll };
   drawFaceStk(lastFaceBox);
 }
 requestAnimationFrame(faceLoop);
@@ -1498,8 +1535,8 @@ function drawFaceStk(bb) {
   var vw = els.video.videoWidth, vh = els.video.videoHeight;
   var k = Math.max(r.width / vw, r.height / vh);
   var ox = (r.width - vw * k) / 2, oy = (r.height - vh * k) / 2;
-  var fx = bb.x;
-  if (els.video.classList.contains('mirrored')) fx = 1 - (bb.x + bb.w);
+  var fx = bb.x, roll = bb.roll || 0;
+  if (els.video.classList.contains('mirrored')) { fx = 1 - (bb.x + bb.w); roll = -roll; }
   var sel = settings.stickers.map(function (id) { return idOf(STICKERS, id); })
     .filter(function (s) { return s && s.fx !== undefined; });
   while (faceStkPool.length < sel.length) {
@@ -1515,6 +1552,7 @@ function drawFaceStk(bb) {
     sp.style.left = (ox + (fx + s.fx * bb.w) * vw * k) + 'px';
     sp.style.top = (oy + (bb.y + s.fy * bb.h) * vh * k) + 'px';
     sp.style.fontSize = Math.max(14, s.fs * bb.w * vw * k * settings.stickerSize) + 'px';
+    sp.style.transform = 'translate(-50%,-50%) rotate(' + roll + 'rad)';
   });
 }
 
@@ -1526,7 +1564,8 @@ function faceToCanvas(bb, sw, sh, mirror) {
   if (sw / sh > tr) { sW = sh * tr; sx = (sw - sW) / 2; } else { sH = sw / tr; sy = (sh - sH) / 2; }
   var u1 = (bb.x * sw - sx) / sW, u2 = ((bb.x + bb.w) * sw - sx) / sW;
   if (mirror) { t = u1; u1 = 1 - u2; u2 = 1 - t; }
-  return { x: u1, y: (bb.y * sh - sy) / sH, w: u2 - u1, h: bb.h * sh / sH };
+  // 镜像翻转画布后,视觉上的倾角反向
+  return { x: u1, y: (bb.y * sh - sy) / sH, w: u2 - u1, h: bb.h * sh / sH, roll: mirror ? -(bb.roll || 0) : (bb.roll || 0) };
 }
 
 /* 首帧到了才亮画面:空 video 在 WebView 里是一整屏灰色播放按钮占位图 */
