@@ -38,6 +38,7 @@ body{
 #grid9 .v2{top:0;bottom:0;left:66.66%;width:1px}
 #faceLayer{position:absolute;inset:0;pointer-events:none}
 #faceLayer span{position:absolute;transform:translate(-50%,-50%);filter:drop-shadow(0 2px 5px rgba(0,0,0,.35));will-change:left,top,font-size}
+#makeupCv{position:absolute;inset:0;pointer-events:none}
 .cam-topbar,.cam-bottombar{position:relative;z-index:2;display:flex;align-items:center}
 .cam-topbar{
   justify-content:space-between;
@@ -220,6 +221,7 @@ body{
   <div id="vfWrap" class="hidden" aria-hidden="true"><div id="vfOuter"></div><div id="vfInner"></div></div>
   <div id="grid9" class="hidden" aria-hidden="true"><div class="h1"></div><div class="h2"></div><div class="v1"></div><div class="v2"></div></div>
   <div id="faceLayer" aria-hidden="true"></div>
+  <canvas id="makeupCv" aria-hidden="true"></canvas>
   <header class="cam-topbar">
     <button id="albumBtn" class="icon-btn" aria-label="我的邮册">📮<span id="albumBadge" class="badge hidden">0</span></button>
     <div class="cam-title"><b>邮票相机</b></div>
@@ -275,6 +277,8 @@ body{
       <label class="slider-row">饰品大小<input type="range" id="stickerSizeRange" min="60" max="160" value="100"></label>
     </div>
 
+    <div class="sec"><div class="sec-t">妆 · 画在五官上(可多选)</div><div class="chips" id="makeupChips"></div></div>
+    <input id="shapeFile" type="file" accept="image/*" hidden>
     <div class="sec"><div class="sec-t">邮资面值</div>
       <input type="text" id="valueInput" maxlength="8" placeholder="如 80分 / 无价 / 520">
       <div class="chips" id="valueChips"></div>
@@ -425,7 +429,8 @@ var SHAPES = [
   { id: 'rect', name: '经典方票', win: 1, cy: 0.5, inset: 32, dy: 0, fs: 1 },
   { id: 'rounded', name: '圆角票', win: 1, cy: 0.5, inset: 42, dy: 0, fs: 0.95 },
   { id: 'oval', name: '椭圆票', win: 0.84, cy: 0.46, inset: 95, dy: -28, fs: 0.72 },
-  { id: 'lips', name: '唇形票', win: 1, cy: 0.5, inset: 60, dy: 0, fs: 0.9, lips: true }
+  { id: 'lips', name: '唇形票', win: 1, cy: 0.5, inset: 60, dy: 0, fs: 0.9, lips: true },
+  { id: 'custom', name: '🖼 自选票形', win: 1, cy: 0.5, inset: 32, dy: 0, fs: 1 }
 ];
 
 // 照片内窗形状
@@ -525,6 +530,13 @@ var GRID_OPTS = [
   { id: '1', name: '九宫格' }
 ];
 
+// 妆:跟脸画在五官上(468 点定位),预览实时跟随,成片烙印;可多选
+var MAKEUP = [
+  { id: 'blush', name: '🌸 腮红' },
+  { id: 'lip', name: '💄 口红' },
+  { id: 'shadow', name: '🎨 眼影' }
+];
+
 // 纸品:邮票裁完后一键生成的衍生卡片
 var PRODUCTS = [
   { id: 'stamp', name: '单枚邮票' },
@@ -569,7 +581,7 @@ var settings = {
   perf: 'classic', cut: 'cw', mark: 'standard', markSize: 1, markPos: 'random',
   stampSize: 1, shutter: 'classic',
   beauty: 1, blurBg: 0, stickers: [], stickerSize: 1,
-  timer: 0, shootMode: 'single', product: 'stamp', grid: '0',
+  timer: 0, shootMode: 'single', product: 'stamp', grid: '0', makeup: [],
   cardMsg: '见字如面,把今天的美好邮给你。',
   markInk: 'fine', wear: [], stampAngle: 0,
   textSel: 'value',
@@ -577,7 +589,7 @@ var settings = {
 };
 
 var els = {};
-['video', 'vfWrap', 'vfOuter', 'vfInner', 'focusRing', 'torchBtn', 'grid9', 'gridChips', 'faceLayer', 'flash', 'timerBtn', 'countdown', 'fileInput', 'camScreen', 'stampScreen', 'albumScreen',
+['video', 'vfWrap', 'vfOuter', 'vfInner', 'focusRing', 'torchBtn', 'grid9', 'gridChips', 'faceLayer', 'makeupCv', 'makeupChips', 'shapeFile', 'flash', 'timerBtn', 'countdown', 'fileInput', 'camScreen', 'stampScreen', 'albumScreen',
  'stampCanvas', 'cutter', 'stampHint', 'stampActions', 'retakeBtn', 'saveBtn', 'downloadBtn', 'editBtn',
  'albumBtn', 'albumBadge', 'flipBtn', 'fxBtn', 'uploadBtn', 'shutterBtn', 'backBtn', 'albumGrid',
  'albumEmpty', 'emptyBackBtn', 'albumCount2', 'viewer', 'viewerImg',
@@ -706,9 +718,9 @@ function fxWater(src) {
   return fin;
 }
 
-/* faceCv: 脸框(canvas 归一化,来自拍摄时的人脸检测,可选)
+/* faceData: { box: 脸框, pts: 468 点(canvas 归一化), roll: 倾角 } 拍摄瞬间快照,可选
    maskCv: 分割 alpha 掩码(canvas,人像区不透明,可选) */
-function processPhoto(c, faceCv, maskCv) {
+function processPhoto(c, faceData, maskCv) {
   var W = c.width, H = c.height;
   var bf = idOf(BEAUTY, settings.beauty).css;
   var blur = idOf(BLUR_BG, settings.blurBg).px;
@@ -752,6 +764,15 @@ function processPhoto(c, faceCv, maskCv) {
   var artFx = idOf(BEAUTY, settings.beauty).fx;
   if (artFx === 'ink') c = fxInk(c);
   else if (artFx === 'water') c = fxWater(c);
+  if (faceData && faceData.pts && settings.makeup.length) { // 妆:画在五官上,柔化叠印
+    var mk2 = document.createElement('canvas');
+    mk2.width = W; mk2.height = H;
+    drawMakeupShapes(mk2.getContext('2d'), faceData.pts, W, H, false, faceData.roll || 0);
+    var g3 = c.getContext('2d');
+    g3.filter = 'blur(2px)';
+    g3.drawImage(mk2, 0, 0);
+    g3.filter = 'none';
+  }
   var g2 = c.getContext('2d');
   g2.filter = 'none';
   g2.textAlign = 'center';
@@ -759,13 +780,13 @@ function processPhoto(c, faceCv, maskCv) {
   settings.stickers.forEach(function (id) {
     var st = idOf(STICKERS, id);
     var x = st.x * W, y = st.y * H, size = Math.round(W * st.s * settings.stickerSize);
-    if (faceCv && st.fx !== undefined) { // 跟脸贴饰:锚点相对脸框,随头部倾斜旋转
-      x = (faceCv.x + st.fx * faceCv.w) * W;
-      y = (faceCv.y + st.fy * faceCv.h) * H;
-      size = Math.round(faceCv.w * W * st.fs * settings.stickerSize);
+    if (faceData && faceData.box && st.fx !== undefined) { // 跟脸贴饰:锚点相对脸框,随头部倾斜旋转
+      x = (faceData.box.x + st.fx * faceData.box.w) * W;
+      y = (faceData.box.y + st.fy * faceData.box.h) * H;
+      size = Math.round(faceData.box.w * W * st.fs * settings.stickerSize);
       g2.save();
       g2.translate(x, y);
-      g2.rotate(faceCv.roll || 0);
+      g2.rotate(faceData.roll || 0);
       g2.font = size + 'px ' + EMOJI;
       g2.fillText(st.e, 0, 0);
       g2.restore();
@@ -806,6 +827,34 @@ function roundRectPath(g, x, y, w, h, r) {
   g.arcTo(x, y + h, x, y, r);
   g.arcTo(x, y, x + w, y, r);
   g.closePath();
+}
+
+
+// 自选票形:图 → 蒙版 canvas(透明 PNG 用 alpha;不透明图按亮度,深色=票形)
+function buildShapeMask(img) {
+  var c = document.createElement('canvas');
+  c.width = D.w; c.height = D.h;
+  var g = c.getContext('2d', { willReadFrequently: true });
+  var k = Math.min(D.w / img.naturalWidth, D.h / img.naturalHeight);
+  var w = img.naturalWidth * k, h = img.naturalHeight * k;
+  g.drawImage(img, (D.w - w) / 2, (D.h - h) / 2, w, h);
+  var d = g.getImageData(0, 0, D.w, D.h), hasAlpha = false, i;
+  for (i = 3; i < d.data.length; i += 4) if (d.data[i] < 245) { hasAlpha = true; break; }
+  if (!hasAlpha) {
+    for (i = 0; i < d.data.length; i += 4) {
+      var L = d.data[i] * 0.3 + d.data[i + 1] * 0.6 + d.data[i + 2] * 0.1;
+      d.data[i + 3] = L < 140 ? 255 : 0;
+    }
+    g.putImageData(d, 0, 0);
+  }
+  current.customMask = c;
+  var gw = 48, gh = 64, grid = new Uint8Array(gw * gh);
+  var sm = document.createElement('canvas'); sm.width = gw; sm.height = gh;
+  var sg = sm.getContext('2d');
+  sg.drawImage(c, 0, 0, gw, gh);
+  var sd = sg.getImageData(0, 0, gw, gh).data;
+  for (i = 0; i < gw * gh; i++) grid[i] = sd[i * 4 + 3];
+  current.customAlpha = { w: gw, h: gh, d: grid };
 }
 
 function silhouettePath(g, shape) {
@@ -883,9 +932,22 @@ function renderStampTo(cv, photoCv, progress, markPos) {
   var holes = current.holes || [];
   if (perf.id !== 'none') {
     var count = Math.floor(progress * holes.length + 1e-6);
+    var ca = current.customAlpha;
     g.globalCompositeOperation = 'destination-out';
     g.fillStyle = '#000';
-    for (var i = 0; i < count; i++) punchHole(g, holes[i], perf);
+    for (var i = 0; i < count; i++) {
+      if (ca) { // 自选票形:齿孔只打在票形内(采样蒙版 alpha)
+        var gx = Math.min(ca.w - 1, Math.max(0, Math.round(holes[i].x / D.w * ca.w)));
+        var gy = Math.min(ca.h - 1, Math.max(0, Math.round(holes[i].y / D.h * ca.h)));
+        if (ca.d[gy * ca.w + gx] < 128) continue;
+      }
+      punchHole(g, holes[i], perf);
+    }
+    g.globalCompositeOperation = 'source-over';
+  }
+  if (shape.id === 'custom' && current.customMask) { // 整票按图裁形
+    g.globalCompositeOperation = 'destination-in';
+    g.drawImage(current.customMask, 0, 0, D.w, D.h);
     g.globalCompositeOperation = 'source-over';
   }
   return holes;
@@ -1543,19 +1605,20 @@ els.torchBtn.addEventListener('click', function () {
 var MP = { face: null, seg: null, ok: false };
 if (location.protocol !== 'file:') {
   import('/vendor/vision_bundle.mjs').then(function (v) {
-  return v.FilesetResolver.forVisionTasks('/vendor/wasm').then(function (fr) {
-    // 全部固定 CPU:GPU delegate 在本 WebView 的 VIDEO 模式下报 graph 错误(真机实测)
-    return Promise.all([
-      v.FaceDetector.createFromOptions(fr, {
-        baseOptions: { modelAssetPath: '/vendor/models/blaze_face_short_range.tflite' },
-        runningMode: 'VIDEO', minDetectionConfidence: 0.4
-      }),
-      v.ImageSegmenter.createFromOptions(fr, {
-        baseOptions: { modelAssetPath: '/vendor/models/selfie_segmenter.tflite' },
-        runningMode: 'VIDEO', outputCategoryMask: true, outputConfidenceMasks: false
-      })
-    ]);
-  });
+    return v.FilesetResolver.forVisionTasks('/vendor/wasm').then(function (fr) {
+      // 全部固定 CPU:GPU delegate 在本 WebView 的 VIDEO 模式下报 graph 错误(真机实测)
+      return Promise.all([
+        // FaceLandmarker 468 点:五官级锚定(妆效)+ 脸框(饰品)
+        v.FaceLandmarker.createFromOptions(fr, {
+          baseOptions: { modelAssetPath: '/vendor/models/face_landmarker.task' },
+          runningMode: 'VIDEO', numFaces: 1
+        }),
+        v.ImageSegmenter.createFromOptions(fr, {
+          baseOptions: { modelAssetPath: '/vendor/models/selfie_segmenter.tflite' },
+          runningMode: 'VIDEO', outputCategoryMask: true, outputConfidenceMasks: false
+        })
+      ]);
+    });
   }).then(function (r) { MP.face = r[0]; MP.seg = r[1]; MP.ok = true; })
     .catch(function () { MP.ok = false; });
 }
@@ -1591,7 +1654,7 @@ function segmentPhoto(c) {
   } catch (e) { return Promise.resolve(null); }
 }
 
-/* 贴饰跟脸:约 150ms 检测一次(ponytail: 不插值,脸快速移动时贴饰会跳,
+/* 贴饰+妆:约 150ms 检测一次(ponytail: 不插值,脸快速移动时贴饰会跳,
    升级路径是每帧检测 + 位置低通滤波) */
 var lastFaceBox = null, faceTs = 0, faceT = 0, faceStkPool = [];
 
@@ -1599,21 +1662,112 @@ function faceStickersOn() {
   return settings.stickers.some(function (id) { var s = idOf(STICKERS, id); return s && s.fx !== undefined; });
 }
 
+// FaceLandmarker 点集 → blaze 风格脸框(眉眼上缘到下巴),老锚点直接沿用
+function lmBox(lms) {
+  var minX = 1, maxX = 0, i;
+  for (i = 0; i < lms.length; i++) {
+    if (lms[i].x < minX) minX = lms[i].x;
+    if (lms[i].x > maxX) maxX = lms[i].x;
+  }
+  var eyeTop = Math.min(lms[33].y, lms[133].y, lms[362].y, lms[263].y);
+  var chin = lms[152].y, h2 = chin - eyeTop;
+  return { x: minX, y: eyeTop - h2 * 0.12, w: maxX - minX, h: h2 * 1.12 };
+}
+
+function drawMakeupShapes(g, pts, W, H, mirror, roll) {
+  if (!pts || pts.length < 468) return;
+  var P = function (i) {
+    var u = pts[i][0], v = pts[i][1];
+    if (mirror) u = 1 - u;
+    return [u * W, v * H];
+  };
+  // 以双眼中点为轴随头倾斜
+  var re = P(159), le = P(386), mt = P(152);
+  var cx = (re[0] + le[0]) / 2, cy = (re[1] + le[1]) / 2 + (mt[1] - (re[1] + le[1]) / 2) * 0.2;
+  g.save();
+  g.translate(cx, cy);
+  g.rotate(mirror ? -roll : roll);
+  g.translate(-cx, -cy);
+  settings.makeup.forEach(function (id) {
+    var m = idOf(MAKEUP, id);
+    if (!m) return;
+    if (m.id === 'blush') {
+      g.fillStyle = 'rgba(255,138,158,.3)';
+      [205, 425].forEach(function (c) {
+        var q = P(c);
+        g.beginPath();
+        g.ellipse(q[0], q[1], W * 0.085, W * 0.048, 0.15, 0, 6.2832);
+        g.fill();
+      });
+    } else if (m.id === 'lip') {
+      g.fillStyle = 'rgba(212,51,92,.75)';
+      g.lineJoin = 'round';
+      g.beginPath();
+      [61, 185, 40, 39, 37, 0, 267, 269, 270, 409, 291, 375, 321, 405, 314, 17, 84, 181, 91, 146].forEach(function (ix, k) {
+        var q = P(ix);
+        k ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]);
+      });
+      g.closePath();
+      g.fill();
+    } else if (m.id === 'shadow') {
+      g.fillStyle = 'rgba(150,108,140,.32)';
+      [[33, 133, 159, 145], [263, 362, 386, 374]].forEach(function (e) {
+        var a = P(e[0]), b = P(e[1]), up = P(e[2]), dn = P(e[3]);
+        var ew = Math.abs(b[0] - a[0]), ec = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        var eyh = Math.abs(dn[1] - up[1]);
+        g.beginPath();
+        g.ellipse(ec[0], ec[1] - eyh * 0.9, ew * 0.46, Math.max(2, eyh * 0.75), 0, 0, 6.2832);
+        g.fill();
+      });
+    }
+  });
+  g.restore();
+}
+
+function makeupPtsToScreen(lms, mirror) {
+  var r = els.video.getBoundingClientRect();
+  var vw = els.video.videoWidth, vh = els.video.videoHeight;
+  var k = Math.max(r.width / vw, r.height / vh);
+  var ox = (r.width - vw * k) / 2, oy = (r.height - vh * k) / 2;
+  var out = [];
+  for (var i = 0; i < lms.length; i++) {
+    var u = lms[i].x;
+    if (mirror) u = 1 - u;
+    out.push([(ox + u * vw * k) / r.width, (oy + lms[i].y * vh * k) / r.height]);
+  }
+  return { pts: out, w: r.width, h: r.height };
+}
+
+function drawMakeup(lm) {
+  if (!settings.makeup.length) { clearMakeup(); return; }
+  var r = els.video.getBoundingClientRect();
+  els.makeupCv.width = r.width; els.makeupCv.height = r.height;
+  var mg = els.makeupCv.getContext('2d');
+  mg.filter = 'blur(1.5px)'; // 妆要柔
+  var m = makeupPtsToScreen(lm.lm, els.video.classList.contains('mirrored'));
+  drawMakeupShapes(mg, m.pts, m.w, m.h, false, lm.roll);
+}
+
+function clearMakeup() {
+  if (els.makeupCv.width) els.makeupCv.getContext('2d').clearRect(0, 0, els.makeupCv.width, els.makeupCv.height);
+}
+
 function faceLoop() {
   requestAnimationFrame(faceLoop);
   var now = +new Date();
   if (!MP.face || now - faceT < 150) return;
   faceT = now;
-  if (els.camScreen.classList.contains('hidden') || !els.video.videoWidth || !faceStickersOn()) { hideFaceStk(); return; }
+  if (els.camScreen.classList.contains('hidden') || !els.video.videoWidth || (!faceStickersOn() && !settings.makeup.length)) { hideFaceStk(); clearMakeup(); return; }
   var res;
   try { res = MP.face.detectForVideo(els.video, ++faceTs); } catch (e) { return; }
-  var det = res && res.detections && res.detections[0];
-  if (!det || !det.boundingBox) { lastFaceBox = null; hideFaceStk(); return; }
-  var b = det.boundingBox, vw = els.video.videoWidth, vh = els.video.videoHeight;
-  var roll = 0, kp = det.keypoints || [];
-  if (kp.length >= 2) roll = Math.atan2(kp[1].y - kp[0].y, kp[1].x - kp[0].x); // 右眼→左眼
-  lastFaceBox = { x: b.originX / vw, y: b.originY / vh, w: b.width / vw, h: b.height / vh, roll: roll };
+  var lms = res && res.faceLandmarks && res.faceLandmarks[0];
+  if (!lms || !lms.length) { lastFaceBox = null; hideFaceStk(); clearMakeup(); return; }
+  var vw = els.video.videoWidth, vh = els.video.videoHeight;
+  var bb = lmBox(lms);
+  var roll = Math.atan2(lms[263].y - lms[33].y, lms[263].x - lms[33].x); // 右外眼角→左外眼角
+  lastFaceBox = { x: bb.x, y: bb.y, w: bb.w, h: bb.h, roll: roll, lm: lms };
   drawFaceStk(lastFaceBox);
+  drawMakeup(lastFaceBox);
 }
 requestAnimationFrame(faceLoop);
 
@@ -1644,6 +1798,19 @@ function drawFaceStk(bb) {
 }
 
 function hideFaceStk() { faceStkPool.forEach(function (sp) { sp.style.display = 'none'; }); }
+
+// 五官点集(video 归一化)→ 成片 canvas 归一化(同 3:4 裁切映射,含镜像)
+function lmToCanvas(lms, sw, sh, mirror) {
+  var tr = 660 / 880, sx = 0, sy = 0, sW = sw, sH = sh;
+  if (sw / sh > tr) { sW = sh * tr; sx = (sw - sW) / 2; } else { sH = sw / tr; sy = (sh - sH) / 2; }
+  var out = [];
+  for (var i = 0; i < lms.length; i++) {
+    var u = (lms[i].x * sw - sx) / sW, v = (lms[i].y * sh - sy) / sH;
+    if (mirror) u = 1 - u;
+    out.push([u, v]);
+  }
+  return out;
+}
 
 /* 拍摄瞬间的脸框(video 归一化)→ 成片 canvas 归一化(grabFrame 中央 3:4 裁切系) */
 function faceToCanvas(bb, sw, sh, mirror) {
@@ -1718,11 +1885,18 @@ function shutter() {
   els.flash.classList.add('on');
   var sw = els.video.videoWidth, sh = els.video.videoHeight, mirror = facing === 'user';
   var frame = grabFrame(els.video, sw, sh, mirror);
-  var faceCv = (lastFaceBox && faceStickersOn()) ? faceToCanvas(lastFaceBox, sw, sh, mirror) : null;
+  var faceData = null;
+  if (lastFaceBox && (faceStickersOn() || settings.makeup.length)) {
+    faceData = {
+      box: faceToCanvas(lastFaceBox, sw, sh, mirror),
+      pts: lmToCanvas(lastFaceBox.lm, sw, sh, mirror),
+      roll: mirror ? -lastFaceBox.roll : lastFaceBox.roll
+    };
+  }
   shooting = true;
   segmentPhoto(frame).then(function (mk) { // 分割同步跑,失败返回 null 走伪景深
     shooting = false;
-    beginStamp(processPhoto(frame, faceCv, mk));
+    beginStamp(processPhoto(frame, faceData, mk));
   });
 }
 
@@ -2031,6 +2205,11 @@ function buildChips() {
     if (i >= 0) settings.stickers.splice(i, 1); else settings.stickers.push(s.id);
     buildChips();
   });
+  chipsRow(els.makeupChips, MAKEUP, function (m) { return settings.makeup.indexOf(m.id) >= 0; }, function (m) {
+    var i = settings.makeup.indexOf(m.id);
+    if (i >= 0) settings.makeup.splice(i, 1); else settings.makeup.push(m.id);
+    buildChips();
+  });
   chipsRow(els.valueChips, VALUE_PRESETS.map(function (v) { return { id: v, name: v }; }), function (v) { return v.id === settings.value; }, function (v) {
     settings.value = v.id; els.valueInput.value = v.id; rerender(); buildChips();
   });
@@ -2041,8 +2220,30 @@ function buildChips() {
     settings.backdrop = b.id; applyBackdrop(); buildChips();
   });
   chipsRow(els.shapeChips, SHAPES, function (s) { return s.id === settings.shape; }, function (s) {
+    if (s.id === 'custom') { els.shapeFile.click(); return; } // 选完图才真正切换
     settings.shape = s.id; current.markPos = getMarkPos(); rerender(); buildChips(); updateVfFrame();
   });
+  els.shapeFile.addEventListener('change', function () {
+    var f = els.shapeFile.files && els.shapeFile.files[0];
+    els.shapeFile.value = '';
+    if (!f) return;
+    var url = URL.createObjectURL(f);
+    var img = new Image();
+    img.onload = function () {
+      buildShapeMask(img);
+      URL.revokeObjectURL(url);
+      settings.shape = 'custom';
+      current.markPos = getMarkPos();
+      rerender(); buildChips(); updateVfFrame();
+      toast('票形已按图裁切 · 齿孔自动沿形保留');
+    };
+    img.onerror = function () { toast('这张图读不出来'); URL.revokeObjectURL(url); };
+    img.src = url;
+  });
+  try { // 上次选过的票形图直接恢复
+    var saved = localStorage.getItem('customShapeV1');
+    if (saved) { var im = new Image(); im.onload = function () { buildShapeMask(im); if (settings.shape === 'custom') rerender(); }; im.src = saved; }
+  } catch (e) {}
   chipsRow(els.windowChips, WINDOWS, function (w) { return w.id === settings.window; }, function (w) {
     settings.window = w.id; rerender(); buildChips(); updateVfFrame();
   });

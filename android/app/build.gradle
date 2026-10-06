@@ -33,6 +33,9 @@ android {
         }
     }
     buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+        }
         release {
             signingConfig ksFile.exists() ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
