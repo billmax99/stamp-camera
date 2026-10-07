@@ -11,9 +11,14 @@ assert.ok(m, 'index.html 里找不到 CORE 标记块');
 assert.strictEqual(typeof perforationPath, 'function', 'CORE 块应定义 perforationPath');
 for (const t of ['PERF_STYLES', 'CUT_MODES', 'MARK_STYLES', 'MARK_POS', 'MARK_INK', 'WEAR', 'SHAPES', 'WINDOWS',
   'PAPERS', 'BACKDROPS', 'SHUTTER_STYLES', 'BEAUTY', 'BLUR_BG', 'STICKERS', 'SIZE_PRESETS',
-  'SHOOT_MODES', 'GRID_OPTS', 'MAKEUP', 'PRODUCTS', 'STYLES', 'TEMPLATES']) {
+  'SHOOT_MODES', 'GRID_OPTS', 'MAKEUP', 'PRODUCTS', 'STYLES', 'TEMPLATES', 'DOODLE_COLORS']) {
   assert.ok(Array.isArray(eval(t)), `CORE 块应导出表 ${t}`);
 }
+for (const d of DOODLE_COLORS) {
+  assert.ok(d.id && d.name, `寄语笔色缺 id/name: ${JSON.stringify(d)}`);
+  assert.ok(/^#[0-9a-f]{6}$/i.test(d.c), `寄语笔色 ${d.id} 色值非法`);
+}
+console.log(`✓ 寄语笔色 ${DOODLE_COLORS.length} 种,色值合法`);
 
 // 齿孔 → 周长弧长坐标(顺时针,顶边起点)
 function arc(h, W, H) {

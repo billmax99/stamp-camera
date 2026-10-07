@@ -128,11 +128,19 @@ body{
   to{transform:translate(-50%,-50%) rotate(360deg)}
 }
 .stamp-actions{
-  display:flex;gap:4px;justify-content:center;align-items:center;
+  display:flex;gap:4px;flex-wrap:wrap;justify-content:center;align-items:center;
   padding:18px 12px calc(env(safe-area-inset-bottom,0px) + 28px);
   visibility:hidden;
 }
 .stamp-actions.show{visibility:visible}
+#doodleCv{position:absolute;left:0;top:0;z-index:3;touch-action:none;cursor:crosshair}
+.doodle-bar{
+  display:flex;flex-direction:column;align-items:center;gap:6px;
+  padding:6px 14px calc(env(safe-area-inset-bottom,0px) + 18px);
+}
+.doodle-ops{display:flex;align-items:center;gap:8px;width:100%;max-width:430px}
+.doodle-ops .slider-row{flex:1;margin-top:0}
+.doodle-ops .text-btn{flex:none}
 .primary-btn{
   border:none;border-radius:999px;background:var(--accent);color:#fff;
   font-size:16px;font-weight:600;padding:13px 18px;cursor:pointer;white-space:nowrap;
@@ -278,15 +286,26 @@ body{
   <div class="stamp-stage">
     <canvas id="stampCanvas"></canvas>
     <div id="cutter" class="hidden"></div>
+    <canvas id="doodleCv" class="hidden"></canvas>
   </div>
   <footer id="stampActions" class="stamp-actions">
     <button id="retakeBtn" class="text-btn">重拍</button>
     <button id="saveBtn" class="primary-btn">📮 收进邮册</button>
     <button id="editBtn" class="text-btn">✏️ 定制</button>
+    <button id="doodleBtn" class="text-btn">✍️ 寄语</button>
     <button id="downloadBtn" class="text-btn">下载</button>
     <button id="stickerBtn" class="text-btn">贴纸</button>
     <button id="shareBtn" class="text-btn">分享</button>
   </footer>
+  <div id="doodleBar" class="doodle-bar hidden">
+    <div class="chips" id="doodleColorChips"></div>
+    <div class="doodle-ops">
+      <label class="slider-row">粗细<input type="range" id="doodleWidthRange" min="3" max="15" value="6"></label>
+      <button id="doodleUndoBtn" class="text-btn">撤销</button>
+      <button id="doodleClearBtn" class="text-btn danger">清空</button>
+      <button id="doodleDoneBtn" class="text-btn">完成</button>
+    </div>
+  </div>
 </section>
 
 <!-- 定制抽屉(相机屏 ✨ / 邮票屏 ✏️ 都能打开) -->
@@ -604,6 +623,14 @@ var MAKEUP = [
   { id: 'shadow', name: '🎨 眼影' }
 ];
 
+// 寄语:手指当笔在票面上写字画画,笔迹画在印刷与邮戳之下
+var DOODLE_COLORS = [
+  { id: 'ink', name: '墨黑', c: '#1c1a17' },
+  { id: 'cream', name: '奶白', c: '#f7f2e5' },
+  { id: 'vermilion', name: '朱红', c: '#c33a32' },
+  { id: 'gold', name: '描金', c: '#c9a227' }
+];
+
 // 纸品:邮票裁完后一键生成的衍生卡片
 var PRODUCTS = [
   { id: 'stamp', name: '单枚邮票' },
@@ -664,6 +691,7 @@ var els = {};
  'albumBtn', 'albumBadge', 'flipBtn', 'fxBtn', 'uploadBtn', 'shutterBtn', 'backBtn', 'albumGrid',
  'albumEmpty', 'emptyBackBtn', 'albumCount2', 'viewer', 'viewerImg',
  'organizeBtn', 'albumSelBar', 'selCount', 'selAllBtn', 'selShareBtn', 'selDelBtn', 'stickerBtn',
+ 'doodleBtn', 'doodleCv', 'doodleBar', 'doodleColorChips', 'doodleWidthRange', 'doodleUndoBtn', 'doodleClearBtn', 'doodleDoneBtn',
  'kissEditor', 'kissCv', 'kissEraseBtn', 'kissKeepBtn', 'kissBrushRange', 'kissCancelBtn', 'kissOkBtn',
  'viewerDownload', 'viewerDelete', 'viewerClose', 'viewerShare', 'toast',
  'shareBtn',
@@ -995,6 +1023,7 @@ function renderStampTo(cv, photoCv, progress, markPos) {
   g.lineWidth = 1;
   g.stroke();
   drawWear(g, pr, win);
+  drawDoodles(g); // 寄语:手写层压在照片上,印刷与邮戳再压在其上(先写字后盖戳)
   if (withPrint) {
     drawPrint(g, shape);
     if (settings.mark !== 'none' && markPos) {
@@ -1421,12 +1450,13 @@ function composeSheetTo(cv) {
 }
 
 /* ============ 裁切动画 ============ */
-var current = { photo: null, saved: false, markPos: null, holes: [], batch: [], view: 'stamp' };
+var current = { photo: null, saved: false, markPos: null, holes: [], batch: [], view: 'stamp', doodles: [] };
 
 function beginStamp(photoCv) {
   current.photo = photoCv;
   current.saved = false;
   current.view = 'stamp';
+  current.doodles = []; // 新照片,寄语重新写
   settings.stampAngle = 0;
   applyStampAngle();
   if (settings.shootMode === 'sheet4') {
@@ -2708,6 +2738,107 @@ els.stickerBtn.addEventListener('click', function () {
   download(els.stampCanvas.toDataURL('image/png'), filePrefix() + '_贴纸_' + ts() + '.png');
   toast('透明底贴纸已下载');
 });
+
+/* ============ 寄语:手指当笔,在票面上写字画画 ============ */
+var doodling = false, doodleStroke = null, doodleColor = DOODLE_COLORS[0].c;
+// 手写顺滑的关键:相邻点中点二次贝塞尔;scale 让同一份笔迹既能烙进票面又能画在预览层
+function drawDoodlesOn(g, strokes, scale) {
+  for (var i = 0; i < strokes.length; i++) {
+    var st = strokes[i], pts = st.pts;
+    if (!pts || !pts.length) continue;
+    g.strokeStyle = st.c;
+    g.fillStyle = st.c;
+    g.lineWidth = st.w * scale;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    if (pts.length === 1) { // 点一下也是一个点
+      g.beginPath();
+      g.arc(pts[0][0] * scale, pts[0][1] * scale, st.w * scale / 2, 0, 6.2832);
+      g.fill();
+      continue;
+    }
+    g.beginPath();
+    g.moveTo(pts[0][0] * scale, pts[0][1] * scale);
+    for (var j = 1; j < pts.length - 1; j++)
+      g.quadraticCurveTo(pts[j][0] * scale, pts[j][1] * scale, (pts[j][0] + pts[j + 1][0]) / 2 * scale, (pts[j][1] + pts[j + 1][1]) / 2 * scale);
+    g.lineTo(pts[pts.length - 1][0] * scale, pts[pts.length - 1][1] * scale);
+    g.stroke();
+  }
+}
+function drawDoodles(g) { drawDoodlesOn(g, current.doodles, 1); }
+function doodleScale() {
+  return els.stampCanvas.getBoundingClientRect().width / D.w;
+}
+function doodlePos(ev) {
+  var r = els.stampCanvas.getBoundingClientRect(), k = doodleScale();
+  return [(ev.clientX - r.left) / k, (ev.clientY - r.top) / k];
+}
+function buildDoodleChips() {
+  chipsRow(els.doodleColorChips, DOODLE_COLORS, function (d) { return d.c === doodleColor; },
+    function (d) { doodleColor = d.c; buildDoodleChips(); });
+}
+function openDoodle() {
+  var r = els.stampCanvas.getBoundingClientRect();
+  els.doodleCv.width = Math.round(r.width * devicePixelRatio);
+  els.doodleCv.height = Math.round(r.height * devicePixelRatio);
+  els.doodleCv.style.width = r.width + 'px';
+  els.doodleCv.style.height = r.height + 'px';
+  els.doodleCv.getContext('2d').setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  doodling = true;
+  buildDoodleChips();
+  els.stampActions.classList.remove('show');
+  els.doodleBar.classList.remove('hidden');
+}
+function closeDoodle() {
+  doodling = false;
+  doodleStroke = null;
+  els.doodleBar.classList.add('hidden');
+  els.doodleCv.classList.add('hidden');
+  els.stampActions.classList.add('show');
+}
+function drawDoodlePreview() {
+  var g = els.doodleCv.getContext('2d');
+  var r = els.doodleCv.getBoundingClientRect();
+  g.clearRect(0, 0, r.width, r.height);
+  if (doodleStroke) drawDoodlesOn(g, [doodleStroke], doodleScale());
+}
+els.doodleBtn.addEventListener('click', function () {
+  els.doodleCv.classList.remove('hidden');
+  openDoodle();
+});
+els.doodleDoneBtn.addEventListener('click', closeDoodle);
+els.doodleUndoBtn.addEventListener('click', function () { current.doodles.pop(); rerender(); });
+els.doodleClearBtn.addEventListener('click', function () {
+  if (!current.doodles.length) return;
+  current.doodles = [];
+  rerender();
+  toast('寄语已清空');
+});
+els.doodleCv.addEventListener('pointerdown', function (ev) {
+  if (!doodling) return;
+  ev.preventDefault();
+  try { els.doodleCv.setPointerCapture(ev.pointerId); } catch (e) {} // 合成/异常指针不强求捕获
+  doodleStroke = { c: doodleColor, w: +els.doodleWidthRange.value, pts: [doodlePos(ev)] };
+  drawDoodlePreview();
+});
+els.doodleCv.addEventListener('pointermove', function (ev) {
+  if (!doodleStroke) return;
+  var p = doodlePos(ev), last = doodleStroke.pts[doodleStroke.pts.length - 1];
+  if (Math.abs(p[0] - last[0]) + Math.abs(p[1] - last[1]) < 1.2) return; // 压掉原地抖动点
+  doodleStroke.pts.push(p);
+  drawDoodlePreview();
+});
+['pointerup', 'pointercancel'].forEach(function (t) {
+  els.doodleCv.addEventListener(t, function () {
+    if (!doodleStroke) return;
+    current.doodles.push(doodleStroke); // 抬手才烙进票面
+    doodleStroke = null;
+    var g = els.doodleCv.getContext('2d');
+    g.clearRect(0, 0, els.doodleCv.width, els.doodleCv.height);
+    rerender();
+  });
+});
+window.addEventListener('resize', function () { if (doodling) closeDoodle(); }); // 转屏后叠层会错位,直接退出
 els.shareBtn.addEventListener('click', async function () {
   shareImage(await canvasBlob(composeOutput()), filePrefix() + '_' + ts() + '.png');
 });
@@ -2833,7 +2964,7 @@ function kissPos(ev) {
 els.kissCv.addEventListener('pointerdown', function (ev) {
   if (!kissEdit) return;
   ev.preventDefault();
-  els.kissCv.setPointerCapture(ev.pointerId);
+  try { els.kissCv.setPointerCapture(ev.pointerId); } catch (e) {}
   kissEdit.drag = true;
   var pt = kissPos(ev); kissStroke(pt.x, pt.y);
 });
