@@ -24,6 +24,8 @@ body{
 #camScreen{background:#000}
 #video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:filter .3s,opacity .25s}
 #video.live{opacity:1}
+/* WebGL 美颜预览层:盖在 video 下,开启时 video 藏起由它显示;点击穿透保对焦 */
+#warpCv{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 #vfWrap{position:absolute;pointer-events:none}
 #vfOuter{position:absolute;inset:0;border:2px dashed rgba(255,255,255,.92);box-shadow:0 0 0 1px rgba(0,0,0,.2),inset 0 0 26px rgba(0,0,0,.14)}
 #vfInner{position:absolute;border:1px dashed rgba(255,255,255,.55)}
@@ -255,6 +257,7 @@ body{
 <!-- ① 相机屏 -->
 <section id="camScreen" class="screen">
   <video id="video" autoplay playsinline muted></video>
+  <canvas id="warpCv" class="hidden" aria-hidden="true"></canvas>
   <div id="vfWrap" class="hidden" aria-hidden="true"><div id="vfOuter"></div><div id="vfInner"></div></div>
   <div id="grid9" class="hidden" aria-hidden="true"><div class="h1"></div><div class="h2"></div><div class="v1"></div><div class="v2"></div></div>
   <div id="faceLayer" aria-hidden="true"></div>
@@ -319,7 +322,7 @@ body{
 
     <div class="sec"><div class="sec-t">拍摄按键</div><div class="chips" id="shutterChips"></div></div>
     <div class="sec"><div class="sec-t">滤镜 · 美颜 · 取景实时预览</div><div class="chips" id="beautyChips"></div></div>
-    <div class="sec"><div class="sec-t">磨皮 · 美白 · 瘦脸 · 拍摄时生效</div><div class="chips" id="skinChips"></div>
+    <div class="sec"><div class="sec-t">磨皮 · 美白 · 瘦脸 · 取景实时预览</div><div class="chips" id="skinChips"></div>
       <label class="slider-row">瘦脸<input type="range" id="thinRange" min="0" max="100" value="0"></label>
     </div>
     <div class="sec"><div class="sec-t">背景虚化 · 拍摄时生效</div><div class="chips" id="blurChips"></div></div>
@@ -698,7 +701,7 @@ var settings = {
 };
 
 var els = {};
-['video', 'vfWrap', 'vfOuter', 'vfInner', 'focusRing', 'torchBtn', 'grid9', 'gridChips', 'faceLayer', 'makeupCv', 'makeupChips', 'shapeFile', 'flash', 'timerBtn', 'countdown', 'fileInput', 'camScreen', 'stampScreen', 'albumScreen',
+['video', 'warpCv', 'vfWrap', 'vfOuter', 'vfInner', 'focusRing', 'torchBtn', 'grid9', 'gridChips', 'faceLayer', 'makeupCv', 'makeupChips', 'shapeFile', 'flash', 'timerBtn', 'countdown', 'fileInput', 'camScreen', 'stampScreen', 'albumScreen',
  'stampCanvas', 'cutter', 'stampHint', 'stampActions', 'retakeBtn', 'saveBtn', 'downloadBtn', 'editBtn',
  'albumBtn', 'albumBadge', 'flipBtn', 'fxBtn', 'uploadBtn', 'shutterBtn', 'backBtn', 'albumGrid',
  'albumEmpty', 'emptyBackBtn', 'albumCount2', 'viewer', 'viewerImg',
@@ -2066,6 +2069,130 @@ function drawFaceStk(bb) {
 
 function hideFaceStk() { faceStkPool.forEach(function (sp) { sp.style.display = 'none'; }); }
 
+/* ============ WebGL 实时美颜预览:磨皮+瘦脸在取景器所见即所得 ============
+   成片仍走 processPhoto 的 CPU 全分辨率管线,这里只是预览(16 采样近似磨皮);
+   无 WebGL/没开美颜/不在相机屏时静默退回原始 video 画面。
+   ponytail: 瘦脸圆心每帧直接读 150ms 一次的 lastFaceBox(不插值),
+   脸快速移动时预览轮廓有 ~150ms 滞后,成片不受影响 */
+var WARP = { gl: null, on: false, tex: null, src: null, loc: {} };
+(function () {
+  var gl = els.warpCv.getContext('webgl', { alpha: false, antialias: false });
+  if (!gl) return;
+  var vs = 'attribute vec2 p;varying vec2 v_uv;void main(){v_uv=vec2(p.x*.5+.5,.5-p.y*.5);gl_Position=vec4(p,0.,1.);}';
+  var fs = [
+    'precision mediump float;varying vec2 v_uv;',
+    'uniform sampler2D u_tex;uniform vec2 u_cover;uniform float u_mirror;',
+    'uniform vec4 u_c1;uniform vec4 u_c2;uniform float u_k;',
+    'uniform float u_mix;uniform float u_bright;uniform vec2 u_texel;uniform float u_ar;',
+    'vec3 blur(vec2 uv){',                                    // 8方向×2半径 16 采样近似
+    '  vec3 s=texture2D(u_tex,uv).rgb*4.;',
+    '  for(int i=0;i<8;i++){float a=float(i)*.7854;',
+    '    vec2 o=vec2(cos(a),sin(a))*u_texel*2.2;',
+    '    s+=texture2D(u_tex,uv+o).rgb*2.;s+=texture2D(u_tex,uv+o*2.).rgb;}',
+    '  return s/24.;}',
+    'void main(){',
+    '  vec2 uv=(v_uv-.5)*u_cover+.5;',                        // object-fit:cover 的裁切映射
+    '  if(u_mirror>.5)uv.x=1.-uv.x;',
+    '  vec2 q=uv;',
+    '  if(u_k>0.){',                                           // 瘦脸:与 CPU fxThin 同公式,向外取源
+    '    vec2 p=vec2(uv.x*u_ar,uv.y);',
+    '    vec2 d1=p-u_c1.xy;float l1=length(d1);',
+    '    if(l1<u_c1.z){float f=u_k*(1.-l1/u_c1.z);q+=vec2(d1.x*f/u_ar,d1.y*f);}',
+    '    vec2 d2=p-u_c2.xy;float l2=length(d2);',
+    '    if(l2<u_c2.z){float f=u_k*(1.-l2/u_c2.z);q+=vec2(d2.x*f/u_ar,d2.y*f);}}',
+    '  vec3 o=texture2D(u_tex,q).rgb;',
+    '  if(u_mix<=0.){gl_FragColor=vec4(o,1.);return;}',
+    '  vec3 b=blur(q);',
+    '  float cb=128.-.168736*o.r-.331264*o.g+.5*o.b;',       // 肤色掩码,同 CPU 阈值
+    '  float cr=128.+.5*o.r-.418688*o.g-.081312*o.b;',
+    '  float skin=step(77.,cb)*step(cb,133.)*step(133.,cr)*step(cr,180.);',
+    '  float hf=abs(dot(o,vec3(.3,.59,.11))-dot(b,vec3(.3,.59,.11)));', // 高频差≈边缘,保五官
+    '  float w=u_mix*skin*(1.-min(hf*2.2,.75));',
+    '  gl_FragColor=vec4(mix(o,b,w)+skin*u_bright*vec3(1.,1.,.9),1.);}'
+  ].join('\n');
+  function sh(type, src2) {
+    var s = gl.createShader(type); gl.shaderSource(s, src2); gl.compileShader(s);
+    return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
+  }
+  var v = sh(gl.VERTEX_SHADER, vs), f = sh(gl.FRAGMENT_SHADER, fs);
+  if (!v || !f) return;
+  var pr = gl.createProgram();
+  gl.attachShader(pr, v); gl.attachShader(pr, f); gl.linkProgram(pr);
+  if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return;
+  gl.useProgram(pr);
+  var buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  var ap = gl.getAttribLocation(pr, 'p');
+  gl.enableVertexAttribArray(ap);
+  gl.vertexAttribPointer(ap, 2, gl.FLOAT, false, 0, 0);
+  var tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  ['u_tex', 'u_cover', 'u_mirror', 'u_c1', 'u_c2', 'u_k', 'u_mix', 'u_bright', 'u_texel', 'u_ar']
+    .forEach(function (n) { WARP.loc[n] = gl.getUniformLocation(pr, n); });
+  WARP.gl = gl; WARP.tex = tex;
+})();
+
+function warpTick() {
+  requestAnimationFrame(warpTick);
+  var src = WARP.src || els.video;
+  var live = els.video.classList.contains('live');
+  var want = !!(WARP.gl && (settings.skin !== '0' || settings.thin > 0)
+    && !els.camScreen.classList.contains('hidden') && (WARP.src || live));
+  if (want !== WARP.on) {
+    WARP.on = want;
+    els.video.style.visibility = want && !WARP.src ? 'hidden' : '';
+    els.warpCv.classList.toggle('hidden', !want);
+  }
+  if (!want) return;
+  var tw = src.videoWidth || src.width, th = src.videoHeight || src.height;
+  var cv = els.warpCv;
+  if (!tw || !cv.clientWidth) return;
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var cw = Math.min(1280, Math.round(cv.clientWidth * dpr) || 1);
+  var ch = Math.max(1, Math.round(cw * cv.clientHeight / Math.max(1, cv.clientWidth)));
+  if (cv.width !== cw || cv.height !== ch) { cv.width = cw; cv.height = ch; }
+  var gl = WARP.gl;
+  gl.viewport(0, 0, cw, ch);
+  gl.bindTexture(gl.TEXTURE_2D, WARP.tex);
+  try { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src); } catch (e) { return; }
+  var car = cw / ch, tar = tw / th;
+  var sx = Math.min(car / tar, 1), sy = Math.min(tar / car, 1); // cover:显示uv→纹理uv 的缩放
+  var mirror = !WARP.src && els.video.classList.contains('mirrored');
+  gl.uniform2f(WARP.loc.u_cover, sx, sy);
+  gl.uniform1f(WARP.loc.u_mirror, mirror ? 1 : 0);
+  gl.uniform2f(WARP.loc.u_texel, 1 / tw, 1 / th);
+  gl.uniform1f(WARP.loc.u_ar, car);
+  var sk = idOf(SKIN, settings.skin);
+  gl.uniform1f(WARP.loc.u_mix, sk.mix || 0);
+  gl.uniform1f(WARP.loc.u_bright, sk.bright || 0);
+  var k = 0, c1 = [9, 9, .001], c2 = [9, 9, .001];
+  var lm = lastFaceBox && lastFaceBox.lm;
+  if (settings.thin > 0 && lm && lm.length > 467) {
+    var eL = lm[234], eR = lm[454], jL = lm[172], jR = lm[397];
+    var fw = Math.abs(eR.x - eL.x);
+    if (fw > 0.12) {
+      k = settings.thin / 100 * 1.2;
+      var toDisp = function (p) {
+        var x = (p.x - .5) * sx + .5, y = (p.y - .5) * sy + .5;
+        return [mirror ? 1 - x : x, y];
+      };
+      var a1 = toDisp(eL), b1 = toDisp(jL), a2 = toDisp(eR), b2 = toDisp(jR);
+      c1 = [(a1[0] + b1[0]) / 2, (a1[1] + b1[1]) / 2, fw * 0.20 * sx];
+      c2 = [(a2[0] + b2[0]) / 2, (a2[1] + b2[1]) / 2, fw * 0.20 * sx];
+    }
+  }
+  gl.uniform4f(WARP.loc.u_c1, c1[0] * car, c1[1], Math.max(.001, c1[2] * car), 0);
+  gl.uniform4f(WARP.loc.u_c2, c2[0] * car, c2[1], Math.max(.001, c2[2] * car), 0);
+  gl.uniform1f(WARP.loc.u_k, k);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+requestAnimationFrame(warpTick);
+
 // 五官点集(video 归一化)→ 成片 canvas 归一化(同 3:4 裁切映射,含镜像)
 function lmToCanvas(lms, sw, sh, mirror) {
   var tr = 660 / 880, sx = 0, sy = 0, sW = sw, sH = sh;
@@ -2466,7 +2593,9 @@ function applyStampSize() {
   els.stampCanvas.style.height = k === 1 ? '' : 'calc(min(56vh, 500px) * ' + k + ')';
 }
 function applyVideoFilter() {
-  els.video.style.filter = idOf(BEAUTY, settings.beauty).css;
+  var f = idOf(BEAUTY, settings.beauty).css;
+  els.video.style.filter = f;
+  els.warpCv.style.filter = f; // WebGL 预览层同步色调滤镜
 }
 function applyVisual() {
   applyBackdrop();
