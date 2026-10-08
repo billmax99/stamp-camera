@@ -11,8 +11,14 @@ assert.ok(m, 'index.html 里找不到 CORE 标记块');
 assert.strictEqual(typeof perforationPath, 'function', 'CORE 块应定义 perforationPath');
 for (const t of ['PERF_STYLES', 'CUT_MODES', 'MARK_STYLES', 'MARK_POS', 'MARK_INK', 'WEAR', 'SHAPES', 'WINDOWS',
   'PAPERS', 'BACKDROPS', 'SHUTTER_STYLES', 'BEAUTY', 'BLUR_BG', 'STICKERS', 'SIZE_PRESETS',
-  'SHOOT_MODES', 'GRID_OPTS', 'MAKEUP', 'PRODUCTS', 'STYLES', 'TEMPLATES', 'DOODLE_COLORS']) {
+  'SHOOT_MODES', 'GRID_OPTS', 'MAKEUP', 'PRODUCTS', 'STYLES', 'TEMPLATES', 'DOODLE_COLORS', 'SKIN']) {
   assert.ok(Array.isArray(eval(t)), `CORE 块应导出表 ${t}`);
+}
+{
+  assert.ok(SKIN.some(s => s.id === '0' && !s.mix), '磨皮档位必须含"关闭"');
+  for (const s of SKIN) assert.ok(s.name && typeof s.mix === 'number' && s.mix >= 0 && s.mix < 1,
+    `磨皮档位非法(0≤mix<1): ${JSON.stringify(s)}`);
+  console.log(`✓ 磨皮档位 ${SKIN.length} 级,mix 合法`);
 }
 for (const d of DOODLE_COLORS) {
   assert.ok(d.id && d.name, `寄语笔色缺 id/name: ${JSON.stringify(d)}`);

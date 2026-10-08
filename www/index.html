@@ -319,6 +319,9 @@ body{
 
     <div class="sec"><div class="sec-t">拍摄按键</div><div class="chips" id="shutterChips"></div></div>
     <div class="sec"><div class="sec-t">滤镜 · 美颜 · 取景实时预览</div><div class="chips" id="beautyChips"></div></div>
+    <div class="sec"><div class="sec-t">磨皮 · 美白 · 瘦脸 · 拍摄时生效</div><div class="chips" id="skinChips"></div>
+      <label class="slider-row">瘦脸<input type="range" id="thinRange" min="0" max="100" value="0"></label>
+    </div>
     <div class="sec"><div class="sec-t">背景虚化 · 拍摄时生效</div><div class="chips" id="blurChips"></div></div>
     <div class="sec"><div class="sec-t">拍摄模式</div><div class="chips" id="modeChips"></div></div>
     <div class="sec"><div class="sec-t">取景构图线</div><div class="chips" id="gridChips"></div></div>
@@ -561,6 +564,15 @@ var BEAUTY = [
   { id: 'water', name: '🎨 水彩', css: 'saturate(1.28) brightness(1.05) contrast(.94)', fx: 'water' }
 ];
 
+// 磨皮·美白(拍摄时逐像素处理,取景器不实时预览):
+// mix=磨皮强度(低频层与原图在肤色区的融合比),bright=肤色区美白增量
+var SKIN = [
+  { id: '0', name: '关闭', mix: 0 },
+  { id: '1', name: '轻磨', mix: .42, bright: 4 },
+  { id: '2', name: '匀净', mix: .58, bright: 7 },
+  { id: '3', name: '瓷肌', mix: .72, bright: 11 }
+];
+
 // 背景虚化:px 为模糊半径,中心椭圆保持清晰(伪景深)
 var BLUR_BG = [
   { id: '0', name: '关闭', px: 0 },
@@ -677,7 +689,7 @@ var settings = {
   paper: 'ivory', backdrop: 'desk', shape: 'rect', window: 'rect',
   perf: 'classic', cut: 'cw', mark: 'standard', markSize: 1, markPos: 'random',
   stampSize: 1, shutter: 'classic',
-  beauty: 1, blurBg: 0, stickers: [], stickerSize: 1,
+  beauty: '1', blurBg: '0', stickers: [], stickerSize: 1, skin: '0', thin: 0,
   timer: 0, shootMode: 'single', product: 'stamp', grid: '0', makeup: [],
   cardMsg: '见字如面,把今天的美好邮给你。',
   markInk: 'fine', wear: [], stampAngle: 0,
@@ -697,6 +709,7 @@ var els = {};
  'shareBtn',
  'drawer', 'drawerMask', 'drawerClose',
  'tplChips', 'styleChips', 'shutterChips', 'beautyChips', 'blurChips', 'stickerChips', 'stickerSizeRange',
+ 'skinChips', 'thinRange',
  'modeChips', 'productChips', 'cardMsgInput',
  'markInkChips', 'wearChips', 'textSelChips', 'textAngleRange', 'resetPoseBtn',
  'kissCaptureBtn', 'kissFile',
@@ -818,10 +831,95 @@ function fxWater(src) {
   return fin;
 }
 
+/* 磨皮·美白:低频层(缩 1/3 模糊再放大)与原图融合,YCbCr 肤色掩码只磨脸颈手,
+   sobel 边缘保护保住五官轮廓与发丝,肤色区再加 bright 提亮;非肤色不磨保持锐利 */
+function fxSmooth(src, sk) {
+  var W = src.width, H = src.height;
+  var lo = document.createElement('canvas');
+  lo.width = Math.max(1, W / 3 | 0); lo.height = Math.max(1, H / 3 | 0);
+  var lg = lo.getContext('2d');
+  lg.filter = 'blur(1.4px)';
+  lg.drawImage(src, 0, 0, lo.width, lo.height);
+  var up = document.createElement('canvas');
+  up.width = W; up.height = H;
+  var ug = up.getContext('2d');
+  ug.drawImage(lo, 0, 0, W, H);
+  var g = src.getContext('2d', { willReadFrequently: true });
+  var A = g.getImageData(0, 0, W, H), p = A.data;
+  var B = ug.getImageData(0, 0, W, H), q = B.data;
+  var L = lumArray(g, W, H), E = sobel(L, W, H);
+  for (var i = 0; i < W * H; i++) {
+    var j = i * 4, r = p[j], gr = p[j + 1], b = p[j + 2];
+    var cb = 128 - .168736 * r - .331264 * gr + .5 * b;
+    var cr = 128 + .5 * r - .418688 * gr - .081312 * b;
+    if (cb < 77 || cb > 133 || cr < 133 || cr > 180) continue; // 非肤色:不磨
+    var w = sk.mix * (1 - Math.min(1, E[i] / 260) * .75);      // 边缘处衰减,防五官糊
+    p[j] = r + (q[j] - r) * w + sk.bright;
+    p[j + 1] = gr + (q[j + 1] - gr) * w + sk.bright;
+    p[j + 2] = b + (q[j + 2] - b) * w + sk.bright * .9;
+  }
+  g.putImageData(A, 0, 0);
+  return src;
+}
+
+/* 瘦脸:468 点驱动,左右咬肌(耳际 234/454 与下颌角 172/397 中点)各一个圆做
+   后向映射径向收缩——目标像素取更外侧的源像素,内容向圆心收;圆心与圆外
+   不动,圆只贴脸缘不碰五官(半径 0.20 脸宽 < 眼外角到耳际的一半)。
+   ponytail: 双圆近似而非脸轮廓逐点 warp,拉满时下颌缘会轻微拉伸,
+   升级路径是轮廓点 Delaunay 三角网格变形 */
+function fxThin(src, pts, amt) {
+  var W = src.width, H = src.height;
+  var P = function (i) { return [pts[i][0] * W, pts[i][1] * H]; };
+  var earL = P(234), earR = P(454), jawL = P(172), jawR = P(397);
+  var fw = Math.abs(earR[0] - earL[0]);           // 脸宽(耳际距)
+  if (fw < W * 0.12) return src;                  // 脸太小,不动
+  var k = amt / 100 * 1.2;
+  var rois = [
+    [(earL[0] + jawL[0]) / 2, (earL[1] + jawL[1]) / 2, fw * 0.20],
+    [(earR[0] + jawR[0]) / 2, (earR[1] + jawR[1]) / 2, fw * 0.20]
+  ];
+  var minY = 1, maxY = 0, minX = 1, maxX = 0, i;
+  for (i = 0; i < pts.length; i++) {
+    if (pts[i][1] < minY) minY = pts[i][1];
+    if (pts[i][1] > maxY) maxY = pts[i][1];
+    if (pts[i][0] < minX) minX = pts[i][0];
+    if (pts[i][0] > maxX) maxX = pts[i][0];
+  }
+  var y0 = Math.max(0, (minY * H - fw * .35) | 0), y1 = Math.min(H, (maxY * H + fw * .35 + 1) | 0);
+  var x0 = Math.max(0, (minX * W - fw * .35) | 0), x1 = Math.min(W, (maxX * W + fw * .35 + 1) | 0);
+  var g = src.getContext('2d', { willReadFrequently: true });
+  var A = g.getImageData(0, 0, W, H), p = A.data;
+  var B = g.getImageData(0, 0, W, H), q = B.data; // 原图做采样源,避免连锁位移
+  for (var y = y0; y < y1; y++) for (var x = x0; x < x1; x++) {
+    var sx = x, sy = y;
+    for (i = 0; i < 2; i++) {
+      var dx = x - rois[i][0], dy = y - rois[i][1];
+      var d = Math.sqrt(dx * dx + dy * dy);
+      if (d >= rois[i][2]) continue;
+      var f = k * (1 - d / rois[i][2]);           // 强度圆心最大、边界归零;位移=d*f 峰值≈r*k/4
+      sx += dx * f; sy += dy * f;                 // 向外取源 → 内容向圆心收
+    }
+    if (sx === x && sy === y) continue;
+    var xi = Math.min(W - 2, Math.max(0, sx | 0)), yi = Math.min(H - 2, Math.max(0, sy | 0));
+    var fx = Math.min(1, Math.max(0, sx - xi)), fy = Math.min(1, Math.max(0, sy - yi));
+    var a = (yi * W + xi) * 4, bx = a + 4, cy = a + W * 4, dy2 = cy + 4;
+    var j = (y * W + x) * 4;
+    p[j] = q[a] * (1 - fx) * (1 - fy) + q[bx] * fx * (1 - fy) + q[cy] * (1 - fx) * fy + q[dy2] * fx * fy;
+    p[j + 1] = q[a + 1] * (1 - fx) * (1 - fy) + q[bx + 1] * fx * (1 - fy) + q[cy + 1] * (1 - fx) * fy + q[dy2 + 1] * fx * fy;
+    p[j + 2] = q[a + 2] * (1 - fx) * (1 - fy) + q[bx + 2] * fx * (1 - fy) + q[cy + 2] * (1 - fx) * fy + q[dy2 + 2] * fx * fy;
+  }
+  g.putImageData(A, 0, 0);
+  return src;
+}
+
 /* faceData: { box: 脸框, pts: 468 点(canvas 归一化), roll: 倾角 } 拍摄瞬间快照,可选
    maskCv: 分割 alpha 掩码(canvas,人像区不透明,可选) */
 function processPhoto(c, faceData, maskCv) {
   var W = c.width, H = c.height;
+  if (settings.thin > 0 && faceData && faceData.pts) c = fxThin(c, faceData.pts, settings.thin);
+  // ponytail: 瘦脸后脸略窄,贴饰/妆的锚点仍按原脸框画,幅度≤24%脸宽时肉眼不可觉
+  var sk = idOf(SKIN, settings.skin);
+  if (sk && sk.mix) c = fxSmooth(c, sk);
   var bf = idOf(BEAUTY, settings.beauty).css;
   var blur = idOf(BLUR_BG, settings.blurBg).px;
   if ((bf || blur) && 'filter' in c.getContext('2d')) {
@@ -1926,7 +2024,7 @@ function faceLoop() {
   var now = +new Date();
   if (!MP.face || now - faceT < 150) return;
   faceT = now;
-  if (els.camScreen.classList.contains('hidden') || !els.video.videoWidth || (!faceStickersOn() && !drawStkOn() && !settings.makeup.length)) { hideFaceStk(); clearMakeup(); return; }
+  if (els.camScreen.classList.contains('hidden') || !els.video.videoWidth || (!faceStickersOn() && !drawStkOn() && !settings.makeup.length && !settings.thin)) { hideFaceStk(); clearMakeup(); return; }
   var res;
   try { res = MP.face.detectForVideo(els.video, ++faceTs); } catch (e) { return; }
   var lms = res && res.faceLandmarks && res.faceLandmarks[0];
@@ -2055,7 +2153,7 @@ function shutter() {
   var sw = els.video.videoWidth, sh = els.video.videoHeight, mirror = facing === 'user';
   var frame = grabFrame(els.video, sw, sh, mirror);
   var faceData = null;
-  if (lastFaceBox && (faceStickersOn() || settings.makeup.length)) {
+  if (lastFaceBox && (faceStickersOn() || settings.makeup.length || settings.thin > 0)) {
     faceData = {
       box: faceToCanvas(lastFaceBox, sw, sh, mirror),
       pts: lmToCanvas(lastFaceBox.lm, sw, sh, mirror),
@@ -2411,11 +2509,14 @@ function buildChips() {
   chipsRow(els.shutterChips, SHUTTER_STYLES, function (s) { return s.id === settings.shutter; }, function (s) {
     settings.shutter = s.id; applyShutter(); buildChips();
   });
-  chipsRow(els.beautyChips, BEAUTY, function (b) { return b.id === String(settings.beauty) || b.id == settings.beauty; }, function (b) {
-    settings.beauty = +b.id; applyVideoFilter(); buildChips();
+  chipsRow(els.beautyChips, BEAUTY, function (b) { return b.id === settings.beauty; }, function (b) {
+    settings.beauty = b.id; applyVideoFilter(); buildChips();
   });
-  chipsRow(els.blurChips, BLUR_BG, function (b) { return b.id === String(settings.blurBg) || b.id == settings.blurBg; }, function (b) {
-    settings.blurBg = +b.id; buildChips();
+  chipsRow(els.skinChips, SKIN, function (s) { return s.id === settings.skin; }, function (s) {
+    settings.skin = s.id; buildChips();
+  });
+  chipsRow(els.blurChips, BLUR_BG, function (b) { return b.id === settings.blurBg; }, function (b) {
+    settings.blurBg = b.id; buildChips();
   });
   chipsRow(els.modeChips, SHOOT_MODES, function (m) { return m.id === settings.shootMode; }, function (m) {
     settings.shootMode = m.id;
@@ -2685,6 +2786,7 @@ els.resetPoseBtn.addEventListener('click', function () {
   rerender();
   toast('已归位');
 });
+els.thinRange.addEventListener('input', function () { settings.thin = +this.value; });
 els.stickerSizeRange.addEventListener('input', function () {
   settings.stickerSize = els.stickerSizeRange.value / 100;
 });
@@ -2716,8 +2818,17 @@ els.fileInput.addEventListener('change', function () {
   var img = new Image();
   img.onload = function () {
     var frame = grabFrame(img, img.naturalWidth, img.naturalHeight, false);
-    // ponytail: 导入照片不做人脸检测(runningMode=VIDEO 只吃视频时间轴),贴饰回固定坐标
-    segmentPhoto(frame).then(function (mk) { beginStamp(processPhoto(frame, null, mk)); });
+    // 导入照片:瘦脸开着就在裁好的成片帧上静态检测一次(递增时间戳喂 VIDEO 模式);
+    // frame 即成片坐标系,lm 归一化坐标直接可用;贴饰仍回固定坐标(YAGNI)
+    var fd = null;
+    if (settings.thin > 0 && MP.face) {
+      try {
+        var r2 = MP.face.detectForVideo(frame, ++faceTs);
+        var lms = r2 && r2.faceLandmarks && r2.faceLandmarks[0];
+        if (lms && lms.length) fd = { pts: lms.map(function (q) { return [q.x, q.y]; }) };
+      } catch (e) {}
+    }
+    segmentPhoto(frame).then(function (mk) { beginStamp(processPhoto(frame, fd, mk)); });
     URL.revokeObjectURL(url);
   };
   img.onerror = function () { toast('这张图读不出来'); URL.revokeObjectURL(url); };
