@@ -52,6 +52,13 @@
       肤色掩码/边缘保护+瘦脸位移,与 CPU 成片同公式),瘦脸圆心每帧读
       lastFaceBox;开启美颜时 video 藏起由 warpCv 显示,色调滤镜同步;
       无 WebGL/关美颜/非相机屏自动退回原始画面;成片仍走 CPU 全分辨率
+- [x] 真机反馈 8 项修复:取景窗独立容器留边(#vfBox,顶/底栏不再叠画面);
+      虚拟键/键盘安全区(env+adjustResize);邮戳长按 550ms 进抽屉定制节
+      (单击换样式/拖动不变);抽屉输入框键盘弹起自动滚进可视区;
+      下载真机可用(MainActivity DownloadListener 接 data:URL 存
+      Pictures/邮票相机,API29+ MediaStore);分享兜底改存相册(弃图片
+      剪贴板假成功);存册 toast 澄清应用内邮册语义;返回键回上一屏
+      (pushState/popstate 栈,相机屏无历史时仍可正常退出)
 
 ## 待办
 

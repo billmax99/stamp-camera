@@ -22,10 +22,12 @@ body{
 
 /* ————— ① 相机屏 ————— */
 #camScreen{background:#000}
-#video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:filter .3s,opacity .25s}
-#video.live{opacity:1}
+/* 取景窗:独立容器留出上下工具栏,不再全屏铺满 */
+#vfBox{position:relative;flex:1;margin:8px 10px 0;border-radius:16px;overflow:hidden;background:#111}
+#vfBox #video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:filter .3s,opacity .25s}
+#vfBox #video.live{opacity:1}
 /* WebGL 美颜预览层:盖在 video 下,开启时 video 藏起由它显示;点击穿透保对焦 */
-#warpCv{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+#vfBox #warpCv{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 #vfWrap{position:absolute;pointer-events:none}
 #vfOuter{position:absolute;inset:0;border:2px dashed rgba(255,255,255,.92);box-shadow:0 0 0 1px rgba(0,0,0,.2),inset 0 0 26px rgba(0,0,0,.14)}
 #vfInner{position:absolute;border:1px dashed rgba(255,255,255,.55)}
@@ -44,14 +46,11 @@ body{
 .cam-topbar,.cam-bottombar{position:relative;z-index:2;display:flex;align-items:center}
 .cam-topbar{
   justify-content:space-between;
-  padding:calc(env(safe-area-inset-top,0px) + 12px) 16px 12px;
-  background:linear-gradient(rgba(0,0,0,.5),transparent);
+  padding:calc(env(safe-area-inset-top,0px) + 10px) 16px 6px;
 }
 .cam-bottombar{
   justify-content:space-between;
-  padding:26px 34px calc(env(safe-area-inset-bottom,0px) + 30px);
-  background:linear-gradient(transparent,rgba(0,0,0,.55));
-  margin-top:auto;
+  padding:10px 34px calc(env(safe-area-inset-bottom,0px) + 16px);
 }
 .cam-title{text-align:center;text-shadow:0 1px 4px rgba(0,0,0,.5)}
 .cam-title b{display:block;font-size:15px;letter-spacing:3px;font-weight:600}
@@ -256,12 +255,6 @@ body{
 
 <!-- ① 相机屏 -->
 <section id="camScreen" class="screen">
-  <video id="video" autoplay playsinline muted></video>
-  <canvas id="warpCv" class="hidden" aria-hidden="true"></canvas>
-  <div id="vfWrap" class="hidden" aria-hidden="true"><div id="vfOuter"></div><div id="vfInner"></div></div>
-  <div id="grid9" class="hidden" aria-hidden="true"><div class="h1"></div><div class="h2"></div><div class="v1"></div><div class="v2"></div></div>
-  <div id="faceLayer" aria-hidden="true"></div>
-  <canvas id="makeupCv" aria-hidden="true"></canvas>
   <header class="cam-topbar">
     <button id="albumBtn" class="icon-btn" aria-label="我的邮册">📮<span id="albumBadge" class="badge hidden">0</span></button>
     <div class="cam-title"><b>邮票相机</b></div>
@@ -271,14 +264,22 @@ body{
       <button id="flipBtn" class="icon-btn" aria-label="翻转镜头">🔄</button>
     </div>
   </header>
+  <div id="vfBox">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="warpCv" class="hidden" aria-hidden="true"></canvas>
+    <div id="vfWrap" class="hidden" aria-hidden="true"><div id="vfOuter"></div><div id="vfInner"></div></div>
+    <div id="grid9" class="hidden" aria-hidden="true"><div class="h1"></div><div class="h2"></div><div class="v1"></div><div class="v2"></div></div>
+    <div id="faceLayer" aria-hidden="true"></div>
+    <canvas id="makeupCv" aria-hidden="true"></canvas>
+    <div id="focusRing" aria-hidden="true"></div>
+    <div id="countdown" class="hidden"></div>
+  </div>
   <footer class="cam-bottombar">
     <button id="uploadBtn" class="icon-btn" aria-label="从相册导入照片">🖼️</button>
     <button id="shutterBtn" class="shutter" aria-label="拍一张"></button>
-    <button id="timerBtn" class="icon-btn" aria-label="定时拍摄">⏱</button>
+    <button id="timerBtn" class="icon-btn" aria-label="定时拍摄">⏱️</button>
   </footer>
   <div id="flash"></div>
-  <div id="focusRing"></div>
-  <div id="countdown" class="hidden"></div>
   <input id="fileInput" type="file" accept="image/*" hidden>
 </section>
 
@@ -721,11 +722,39 @@ var els = {};
  'markChips', 'markSizeRange', 'markPosChips'
 ].forEach(function (id) { els[id] = document.getElementById(id); });
 
-function show(screen) {
+function show(screen, viaBack) {
   [els.camScreen, els.stampScreen, els.albumScreen].forEach(function (s) { s.classList.add('hidden'); });
   screen.classList.remove('hidden');
   if (screen === els.albumScreen) renderAlbum();
+  if (!viaBack) navPush(screen.id);
 }
+
+/* ————— 返回键:切屏/开抽屉都压一条历史,系统返回=回上一层而非退出程序 —————
+   (Capacitor 壳内 WebView 有历史时返回键触发 goBack→popstate;
+   browser/file:// 下 pushState 失败则静默退化为原生行为) */
+var navRestoring = false;
+function navPush(z) {
+  if (navRestoring) return;
+  try { history.pushState({ z: z }, ''); } catch (e) {}
+}
+function navBack() { // 主动关一层(完成/蒙层/取消):消费掉自己压的条目
+  if (navRestoring) return;
+  try { history.back(); } catch (e) {}
+}
+function closeTopOverlays() { // 返回键恢复到某层:先合上所有浮层(幂等)
+  if (!els.viewer.classList.contains('hidden')) closeViewer();
+  if (!els.kissEditor.classList.contains('hidden')) { kissEdit = null; els.kissEditor.classList.add('hidden'); }
+  if (els.drawer.classList.contains('open')) els.drawer.classList.remove('open');
+}
+window.addEventListener('popstate', function (e) {
+  var z = (e.state && e.state.z) || 'camScreen';
+  navRestoring = true;
+  try {
+    closeTopOverlays();
+    if (z === 'drawer') openDrawer(); // 回退目标是"抽屉开着"的层(基座屏保持)
+    else if (z !== 'viewer' && z !== 'kiss') show({ camScreen: els.camScreen, stampScreen: els.stampScreen, albumScreen: els.albumScreen }[z] || els.camScreen, true);
+  } finally { navRestoring = false; }
+});
 
 /* ============ 提示 ============ */
 var toastTimer = null;
@@ -2452,7 +2481,7 @@ function saveStamp() {
   current.saved = true;
   els.saveBtn.disabled = true;
   flyToAlbum(item.img);
-  toast('已把美好收进邮册 📮');
+  toast('已收进应用内邮册 📮 下载/分享才会进系统相册');
   updateBadge();
   setTimeout(function () {
     if (current.view === 'sheet') current.batch = [];
@@ -2512,7 +2541,8 @@ function dataURLBlob(url) {
   for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
   return new Blob([u8], { type: mime });
 }
-// 带图系统分享 → 纯文本系统分享 → 复制图片到剪贴板,逐级兜底
+// 带图系统分享 → 纯文本系统分享 → 存入系统相册(dataURL 走 <a download>,壳内由
+// 原生 DownloadListener 落盘),逐级兜底;不再走图片剪贴板(WebView 里假成功粘贴不出)
 async function shareImage(blob, name) {
   var title = settings.issuer || '邮票相机';
   var text = '把美好邮给你 📮';
@@ -2529,12 +2559,10 @@ async function shareImage(blob, name) {
     try { await navigator.share({ title: title, text: text }); return; }
     catch (e) { if (e && e.name === 'AbortError') return; }
   }
-  try {
-    await navigator.clipboard.write([new ClipboardItem((function () { var o = {}; o[blob.type] = blob; return o; })())]);
-    toast('已复制邮票,去粘贴给朋友吧');
-  } catch (e) {
-    toast('此环境不支持分享,请用下载');
-  }
+  var fr = new FileReader();
+  var url = await new Promise(function (res) { fr.onload = function () { res(fr.result); }; fr.readAsDataURL(blob); });
+  download(url, name);
+  toast('已存入系统相册(Pictures/邮票相机),去微信/QQ 发给朋友吧');
 }
 
 /* ============ 查看大图 ============ */
@@ -2543,15 +2571,18 @@ function openViewer(st) {
   viewing = st;
   els.viewerImg.src = st.img;
   els.viewer.classList.remove('hidden');
+  navPush('viewer');
 }
 function closeViewer() {
   els.viewer.classList.add('hidden');
   viewing = null;
+  navBack();
 }
 
 /* ============ 定制抽屉 ============ */
 function openDrawer(focus) {
   els.drawer.classList.add('open');
+  navPush('drawer');
   if (focus === 'value' || focus === 'issuer') {
     setTimeout(function () {
       (focus === 'value' ? els.valueInput : els.issuerInput).focus();
@@ -2560,7 +2591,13 @@ function openDrawer(focus) {
 }
 function closeDrawer() {
   els.drawer.classList.remove('open');
+  navBack();
 }
+// 键盘弹起时把正在输入的框滚进可视区(抽屉面板可滚,adjustResize 后视口已缩)
+els.drawer.addEventListener('focusin', function (e) {
+  if (e.target.tagName !== 'INPUT') return;
+  setTimeout(function () { e.target.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 350);
+});
 
 function chip(label, on, onClick) {
   var b = document.createElement('button');
@@ -2755,8 +2792,10 @@ function buildChips() {
   });
 }
 
-/* 点邮票直改:底部文字带=选中/改文字,边缘齿孔=换齿孔,邮戳圈内=换邮戳(拖动后的松手不算;仅单枚视图) */
+/* 点邮票直改:底部文字带=选中/改文字,边缘齿孔=换齿孔,邮戳圈内=单击换样式·长按进定制(拖动后的松手不算;仅单枚视图) */
 var suppressClick = false;
+var markHoldT = 0, markHoldFired = false; // 长按邮戳 550ms=打开抽屉邮戳节
+function clearMarkHold() { if (markHoldT) { clearTimeout(markHoldT); markHoldT = 0; } }
 els.stampCanvas.addEventListener('click', function (e) {
   if (suppressClick) { suppressClick = false; return; }
   if (!current.photo || current.view !== 'stamp' || !els.stampActions.classList.contains('show')) return;
@@ -2824,6 +2863,16 @@ els.stampCanvas.addEventListener('pointerdown', function (e) {
     bdy: mode === 'text' ? settings.textPos[tx].dy : 0,
     a0: Math.atan2(p.y - D.h / 2, p.x - D.w / 2), ang0: settings.stampAngle
   };
+  if (mode === 'mark') {
+    markHoldFired = false;
+    clearMarkHold();
+    markHoldT = setTimeout(function () {
+      markHoldT = 0; markHoldFired = true; suppressClick = true;
+      openDrawer();
+      setTimeout(function () { els.markChips.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 380);
+      toast('邮戳定制:样式·大小·位置·墨色');
+    }, 550);
+  }
   try { els.stampCanvas.setPointerCapture(e.pointerId); } catch (err) {}
   e.preventDefault();
 });
@@ -2834,7 +2883,7 @@ els.stampCanvas.addEventListener('pointermove', function (e) {
     // 允许把戳拖出票边:只露出一角,靠剪影裁掉界外部分
     var nx = clamp(p.x + drag.mdx, -60, D.w + 60);
     var ny = clamp(p.y + drag.mdy, -60, D.h + 60);
-    if (!drag.moved && Math.hypot(nx - current.markPos.x, ny - current.markPos.y) > 3) drag.moved = true;
+    if (!drag.moved && Math.hypot(nx - current.markPos.x, ny - current.markPos.y) > 3) { drag.moved = true; clearMarkHold(); }
     current.markPos.x = nx; current.markPos.y = ny;
     if (drag.moved) rerender();
   } else if (drag.mode === 'text') {
@@ -2854,7 +2903,11 @@ els.stampCanvas.addEventListener('pointermove', function (e) {
 function endDrag(e) {
   if (!drag || e.pointerId !== drag.id) return;
   var moved = drag.moved, mode = drag.mode;
+  var held = markHoldFired;
   drag = null;
+  clearMarkHold();
+  markHoldFired = false;
+  if (held) return; // 长按已打开定制,松手不再触发单击换样式
   if (moved) {
     suppressClick = true; // 拖完松手不触发点击切换
     if (mode === 'mark') { settings.markPos = 'custom'; buildChips(); }
@@ -3177,6 +3230,7 @@ function openKissEditor(img) {
   };
   els.kissCv.width = W; els.kissCv.height = H;
   els.kissEditor.classList.remove('hidden');
+  navPush('kiss');
   paintKiss();
 }
 function paintKiss() {
@@ -3231,12 +3285,14 @@ els.kissKeepBtn.addEventListener('click', function () {
 els.kissCancelBtn.addEventListener('click', function () {
   kissEdit = null;
   els.kissEditor.classList.add('hidden');
+  navBack();
 });
 els.kissOkBtn.addEventListener('click', function () {
   if (!kissEdit) return;
   var url = els.kissCv.toDataURL('image/png');
   kissEdit = null;
   els.kissEditor.classList.add('hidden');
+  navBack();
   setKissAsset(url);
 });
 function setKissAsset(dataURL) {
