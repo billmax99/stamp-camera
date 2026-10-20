@@ -26,13 +26,15 @@ body{
 #vfBox{position:relative;flex:1;margin:8px 10px 0;border-radius:16px;overflow:hidden;background:#111}
 #vfBox #video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:filter .3s,opacity .25s}
 #vfBox #video.live{opacity:1}
+/* 前摄镜像:预览照镜子,成片 grabFrame 同样翻转,两者方向一致 */
+#vfBox #video.mirrored{transform:scaleX(-1)}
 /* WebGL 美颜预览层:盖在 video 下,开启时 video 藏起由它显示;点击穿透保对焦 */
 #vfBox #warpCv{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
 #vfWrap{position:absolute;pointer-events:none}
 #vfOuter{position:absolute;inset:0;border:2px dashed rgba(255,255,255,.92);box-shadow:0 0 0 1px rgba(0,0,0,.2),inset 0 0 26px rgba(0,0,0,.14)}
 #vfInner{position:absolute;border:1px dashed rgba(255,255,255,.55)}
 #focusRing{position:absolute;width:74px;height:74px;margin:-37px 0 0 -37px;border:2px solid rgba(255,255,255,.95);border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.3);pointer-events:none;opacity:0}
-#focusRing.on{animation:fz .9s ease-out}
+#focusRing.on{animation:fz .6s ease-out}
 @keyframes fz{0%{opacity:1;transform:scale(1.55)}70%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1)}}
 #torchBtn.on{background:rgba(255,214,79,.92)}
 #grid9 div{position:absolute;background:rgba(255,255,255,.38);box-shadow:0 0 1px rgba(0,0,0,.25)}
@@ -53,10 +55,10 @@ body{
   padding:10px 34px calc(env(safe-area-inset-bottom,0px) + 16px);
 }
 .cam-title{text-align:center;text-shadow:0 1px 4px rgba(0,0,0,.5)}
-.cam-title b{display:block;font-size:15px;letter-spacing:3px;font-weight:600}
+.cam-title b{display:block;font-size:18px;letter-spacing:3px;font-weight:600}
 .icon-btn{
-  position:relative;width:44px;height:44px;border:none;border-radius:50%;
-  background:rgba(0,0,0,.38);color:#fff;font-size:19px;line-height:44px;text-align:center;
+  position:relative;width:56px;height:56px;border:none;border-radius:50%;
+  background:rgba(0,0,0,.38);color:#fff;font-size:25px;line-height:56px;text-align:center;
   backdrop-filter:blur(6px);cursor:pointer;transition:transform .12s;
 }
 .icon-btn:active{transform:scale(.9)}
@@ -68,16 +70,17 @@ body{
 }
 .side-spacer{width:44px;flex:none}
 .shutter{
-  width:76px;height:76px;border-radius:50%;border:5px solid #fff;
+  width:92px;height:92px;border-radius:50%;border:6px solid #fff;
   background:rgba(255,255,255,.22);cursor:pointer;box-shadow:0 0 0 2px rgba(0,0,0,.15);
-  transition:transform .12s;display:flex;align-items:center;justify-content:center;font-size:26px;
+  transition:transform .12s;display:flex;align-items:center;justify-content:center;font-size:32px;
 }
 .shutter:active{transform:scale(.9)}
 .sh-love{border-color:#ff5f7a;background:rgba(229,72,77,.28)}
 .sh-seal{border-color:#c0392b;background:rgba(192,57,43,.35)}
 .sh-gold{border-color:#d4af37;background:rgba(212,175,55,.22)}
-#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:5}
+#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:5;transition:opacity .15s}
 #flash.on{animation:flash .3s ease-out}
+#flash.fill{opacity:1;transition:none}
 @keyframes flash{0%{opacity:0}18%{opacity:.95}100%{opacity:0}}
 #countdown{
   position:absolute;inset:0;z-index:3;display:flex;align-items:center;justify-content:center;
@@ -256,7 +259,7 @@ body{
 <!-- ① 相机屏 -->
 <section id="camScreen" class="screen">
   <header class="cam-topbar">
-    <button id="albumBtn" class="icon-btn" aria-label="我的邮册">📮<span id="albumBadge" class="badge hidden">0</span></button>
+    <button id="uploadBtn" class="icon-btn" aria-label="从相册导入照片">🖼️</button>
     <div class="cam-title"><b>邮票相机</b></div>
     <div style="display:flex;gap:10px">
       <button id="fxBtn" class="icon-btn" aria-label="拍摄效果与定制">✨</button>
@@ -267,7 +270,7 @@ body{
   <div id="vfBox">
     <video id="video" autoplay playsinline muted></video>
     <canvas id="warpCv" class="hidden" aria-hidden="true"></canvas>
-    <div id="vfWrap" class="hidden" aria-hidden="true"><div id="vfOuter"></div><div id="vfInner"></div></div>
+    <div id="vfWrap" class="hidden" aria-hidden="true"><div id="vfOuter"></div></div>
     <div id="grid9" class="hidden" aria-hidden="true"><div class="h1"></div><div class="h2"></div><div class="v1"></div><div class="v2"></div></div>
     <div id="faceLayer" aria-hidden="true"></div>
     <canvas id="makeupCv" aria-hidden="true"></canvas>
@@ -275,7 +278,7 @@ body{
     <div id="countdown" class="hidden"></div>
   </div>
   <footer class="cam-bottombar">
-    <button id="uploadBtn" class="icon-btn" aria-label="从相册导入照片">🖼️</button>
+    <button id="albumBtn" class="icon-btn" aria-label="我的邮册">📮<span id="albumBadge" class="badge hidden">0</span></button>
     <button id="shutterBtn" class="shutter" aria-label="拍一张"></button>
     <button id="timerBtn" class="icon-btn" aria-label="定时拍摄">⏱️</button>
   </footer>
@@ -702,7 +705,7 @@ var settings = {
 };
 
 var els = {};
-['video', 'warpCv', 'vfWrap', 'vfOuter', 'vfInner', 'focusRing', 'torchBtn', 'grid9', 'gridChips', 'faceLayer', 'makeupCv', 'makeupChips', 'shapeFile', 'flash', 'timerBtn', 'countdown', 'fileInput', 'camScreen', 'stampScreen', 'albumScreen',
+['video', 'warpCv', 'vfWrap', 'vfOuter', 'focusRing', 'torchBtn', 'grid9', 'gridChips', 'faceLayer', 'makeupCv', 'makeupChips', 'shapeFile', 'flash', 'timerBtn', 'countdown', 'fileInput', 'camScreen', 'stampScreen', 'albumScreen',
  'stampCanvas', 'cutter', 'stampHint', 'stampActions', 'retakeBtn', 'saveBtn', 'downloadBtn', 'editBtn',
  'albumBtn', 'albumBadge', 'flipBtn', 'fxBtn', 'uploadBtn', 'shutterBtn', 'backBtn', 'albumGrid',
  'albumEmpty', 'emptyBackBtn', 'albumCount2', 'viewer', 'viewerImg',
@@ -1738,6 +1741,18 @@ async function tapFocus(cx, cy) {
   var t = stream.getVideoTracks()[0];
   if (!t || !t.applyConstraints) return;
   afBusy = true;
+  // 快路径:标准 single-shot(多数机型支持,整段 ~0.65s);失败/不支持走下面的手动扫描
+  var modes = null;
+  try { modes = (t.getCapabilities && t.getCapabilities().focusMode) || null; } catch (e) {}
+  if (modes && modes.indexOf('single-shot') >= 0) {
+    try {
+      await t.applyConstraints({ advanced: [{ focusMode: 'single-shot', points: [{ x: cx, y: cy }] }] });
+      await new Promise(function (r) { setTimeout(r, 550); });
+      lastFocus = 0; // 镜片交回系统,手动记忆作废
+      afBusy = false;
+      return;
+    } catch (e) { /* 单次对焦被拒:落回扫描 */ }
+  }
   // 每档:驱动镜片→等稳→抓两帧取大(压自动曝光的亮度瞬态)
   function probe(d, settle) {
     d = Math.min(9.9, Math.max(0.16, d)); // vivo 能力下限是 float32 的 0.15000000596,留边
@@ -1753,32 +1768,32 @@ async function tapFocus(cx, cy) {
   }
   var px = cx, py = cy;
   var cur = lastFocus > 0 ? lastFocus : 0.45; // 从当前位置出发,不从最近档全范围扫
-  var s0 = await probe(cur, 300); // 起步长等:刚从连续对焦切过来,残帧不可信
+  var s0 = await probe(cur, 200); // 起步长等:刚从连续对焦切过来,残帧不可信
   var s = s0.s;
   if (s > 0) {
     var c0 = regionSharpness(0.5, 0.42);
     if (s < c0 * 0.6) { px = 0.5; py = 0.42; s = c0; } // 点的地方没纹理(脸/白墙)改信中心
     // 定方向:先试近,不明显好再试远;两边都不好=已经对上了,直接收工
-    var dir = 0, prev = cur, first = await probe(cur * 0.45, 190);
+    var dir = 0, prev = cur, first = await probe(cur * 0.45, 140);
     if (first.s > s * 1.06) { dir = 0.45; cur = first.d; s = first.s; }
     else {
-      var second = await probe(cur * 2.2, 190);
+      var second = await probe(cur * 2.2, 140);
       if (second.s > s * 1.06) { dir = 2.2; cur = second.d; s = second.s; }
     }
     if (dir !== 0) {
       // 单向推进,变差就停:镜头只朝一个方向走,不来回拉风箱
       var guard = 0;
-      while (guard++ < 4) {
+      while (guard++ < 3) {
         var nxt = cur * dir;
         if (nxt < 0.16 || nxt > 9.9) break;
-        var r2 = await probe(nxt, 190);
+        var r2 = await probe(nxt, 140);
         if (r2.s > s * 1.02) { s = r2.s; prev = cur; cur = nxt; } else { prev = nxt; break; }
       }
       // 峰夹在 cur 与 prev 之间,对数中点收两轮
       for (var i = 0; i < 2; i++) {
         var mid = Math.sqrt(cur * prev);
         if (mid === cur || mid === prev) break;
-        var rm = await probe(mid, 170);
+        var rm = await probe(mid, 130);
         if (rm.s > s) { s = rm.s; cur = mid; } else prev = mid;
       }
     }
@@ -1815,7 +1830,7 @@ async function restart(want) {
     if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
     stream = s;
     facing = want;
-    torchOn = false; els.torchBtn.classList.remove('on'); // 新轨道手电筒默认关
+    flashMode = 'off'; els.torchBtn.classList.remove('on'); // 新轨道补光默认关
     els.video.classList.remove('live');
     els.video.srcObject = s;
     els.video.classList.toggle('mirrored', want === 'user');
@@ -1831,19 +1846,27 @@ async function startCamera() {
   if (!(await restart(facing))) toast('相机不可用,点击左下角用相片做邮票');
 }
 
-// 手电筒补光(近拍邮票/暗光):能力已在 vivo 真机验证(torch:true)
-var torchOn = false;
-els.torchBtn.addEventListener('click', function () {
+// 闪光三态:关 → 常亮(torch,近拍补光) → 屏幕补光(拍照瞬间全屏白 0.4s,自拍补脸) → 关;
+// Web 拿不到硬件闪光同步,屏闪是前置补光的唯一路(NOMO 等同类做法)
+var flashMode = 'off';
+els.torchBtn.addEventListener('click', async function () {
   var t = stream && stream.getVideoTracks()[0];
-  if (!t) { toast('相机没就绪'); return; }
-  torchOn = !torchOn;
-  t.applyConstraints({ advanced: [{ torch: torchOn }] }).then(function () {
-    els.torchBtn.classList.toggle('on', torchOn);
-  }).catch(function () {
-    torchOn = false;
-    els.torchBtn.classList.remove('on');
-    toast('这台设备不支持手电筒');
-  });
+  var next = flashMode === 'off' ? 'torch' : flashMode === 'torch' ? 'screen' : 'off';
+  flashMode = next;
+  els.torchBtn.classList.toggle('on', flashMode !== 'off');
+  if (flashMode === 'torch') {
+    try {
+      await t.applyConstraints({ advanced: [{ torch: true }] });
+      toast('常亮补光开');
+    } catch (e) {
+      flashMode = 'screen';
+      els.torchBtn.classList.toggle('on', true);
+      toast('这台设备不支持常亮,改用屏幕补光');
+    }
+  } else {
+    if (t) t.applyConstraints({ advanced: [{ torch: false }] }).catch(function () {});
+    toast(flashMode === 'screen' ? '拍照时屏幕补光' : '补光已关');
+  }
 });
 
 /* ============ MediaPipe 增强:人脸检测(贴饰跟脸) + 人像分割(真虚化) ============
@@ -2271,19 +2294,19 @@ function updateVfFrame() {
   var cw = Math.min(vw, vh * tr) * k, ch = Math.min(vh, vw / tr) * k;
   els.vfWrap.classList.remove('hidden');
   els.vfWrap.style.cssText = 'width:' + cw + 'px;height:' + ch + 'px;left:' + (dw - cw) / 2 + 'px;top:' + (dh - ch) / 2 + 'px';
+  // 单框示意:外沿=邮票边界,即齿孔中心线;孔内侧才是成片画面(留 7% 余量的信息放进裁切环节)
   els.vfOuter.style.borderRadius = ({ rect: 0, rounded: '7%', oval: '50%', lips: '42% 42% 48% 48%' })[settings.shape] || 0;
-  els.vfInner.style.borderRadius = ({ rect: 0, rounded: '9%', oval: '50%', heart: '40% 40% 50% 50%', lips: '42% 42% 48% 48%' })[settings.window] || 0;
-  var inset = Math.round(Math.min(cw, ch) * 0.07 * (idOf(SHAPES, settings.shape).win || 1));
-  els.vfInner.style.inset = inset + 'px';
 }
 window.addEventListener('resize', updateVfFrame);
 
-/* 画面全黑提示:流健康但亮度接近 0,多半是镜头被挡或朝下 */
+/* 画面全黑自愈:流健康但亮度接近 0,多半是镜头被挡/朝下/MIUI 相机服务假起(黑帧),
+   连续 8s 黑先自动重开一次流(TODO 记录 force-stop 重开即恢复,应用内 restart 通常够),
+   再黑就提示人工处理;镜头真被挡时 restart 无害,只多一次起流 */
 function watchDarkness() {
   var c = document.createElement('canvas');
   c.width = 32; c.height = 43;
   var g = c.getContext('2d');
-  var dark = 0, warned = false;
+  var dark = 0, retried = false, warned = false;
   setInterval(function () {
     if (els.camScreen.classList.contains('hidden') || !els.video.videoWidth) { dark = 0; return; }
     try {
@@ -2292,8 +2315,13 @@ function watchDarkness() {
       var s = 0;
       for (var i = 0; i < d.length; i += 4) s += d[i] + d[i+1] + d[i+2];
       dark = (s / (d.length / 4) / 3) < 4 ? dark + 1 : 0;
-      if (dark >= 4 && !warned) { warned = true; toast('画面很黑,镜头可能被挡住或朝下了'); }
-      if (dark === 0) warned = false;
+      if (dark >= 4 && !retried) { // 8s 全黑:自动重开一次流
+        retried = true;
+        restart(facing);
+        return;
+      }
+      if (dark >= 8 && !warned) { warned = true; restart(facing); toast('画面很黑:已尝试重启相机,若仍黑请检查镜头或重进应用'); }
+      if (dark === 0) { warned = false; retried = false; }
     } catch (e) {}
   }, 2000);
 }
@@ -2303,24 +2331,35 @@ function shutter() {
   if (afBusy) { toast('对焦中,松开再拍'); return; }
   if (shooting) return;
   if (!els.video.videoWidth) { toast('相机没准备好,试试左下角导入照片'); return; }
-  els.flash.classList.remove('on');
-  void els.flash.offsetWidth;
-  els.flash.classList.add('on');
-  var sw = els.video.videoWidth, sh = els.video.videoHeight, mirror = facing === 'user';
-  var frame = grabFrame(els.video, sw, sh, mirror);
-  var faceData = null;
-  if (lastFaceBox && (faceStickersOn() || settings.makeup.length || settings.thin > 0)) {
-    faceData = {
-      box: faceToCanvas(lastFaceBox, sw, sh, mirror),
-      pts: lmToCanvas(lastFaceBox.lm, sw, sh, mirror),
-      roll: mirror ? -lastFaceBox.roll : lastFaceBox.roll
-    };
+  var fire = function () {
+    els.flash.classList.remove('on');
+    void els.flash.offsetWidth;
+    els.flash.classList.add('on');
+    var sw = els.video.videoWidth, sh = els.video.videoHeight, mirror = facing === 'user';
+    var frame = grabFrame(els.video, sw, sh, mirror);
+    var faceData = null;
+    if (lastFaceBox && (faceStickersOn() || settings.makeup.length || settings.thin > 0)) {
+      faceData = {
+        box: faceToCanvas(lastFaceBox, sw, sh, mirror),
+        pts: lmToCanvas(lastFaceBox.lm, sw, sh, mirror),
+        roll: mirror ? -lastFaceBox.roll : lastFaceBox.roll
+      };
+    }
+    shooting = true;
+    segmentPhoto(frame).then(function (mk) { // 分割同步跑,失败返回 null 走伪景深
+      shooting = false;
+      beginStamp(processPhoto(frame, faceData, mk));
+    });
+  };
+  if (flashMode === 'screen') { // 先亮屏 0.38s 给被摄者补光,取帧后再暗下来
+    els.flash.classList.add('fill');
+    setTimeout(function () {
+      fire();
+      setTimeout(function () { els.flash.classList.remove('fill'); }, 400);
+    }, 380);
+    return;
   }
-  shooting = true;
-  segmentPhoto(frame).then(function (mk) { // 分割同步跑,失败返回 null 走伪景深
-    shooting = false;
-    beginStamp(processPhoto(frame, faceData, mk));
-  });
+  fire();
 }
 
 /* 定时拍摄:倒计时结束自动快门 */
@@ -2452,6 +2491,7 @@ function composeStoreJpeg() {
 
 function flyToAlbum(src) {
   var r = els.stampCanvas.getBoundingClientRect();
+  var to = els.albumBtn.getBoundingClientRect(); // 飞向邮册按钮实际位置(左下角)
   var img = document.createElement('img');
   img.src = src;
   img.style.cssText =
@@ -2462,7 +2502,7 @@ function flyToAlbum(src) {
   document.body.appendChild(img);
   requestAnimationFrame(function () {
     requestAnimationFrame(function () {
-      img.style.transform = 'translate(' + (18 - r.left) + 'px,' + (18 - r.top) + 'px) scale(.05)';
+      img.style.transform = 'translate(' + (to.left + to.width / 2 - r.left) + 'px,' + (to.top + to.height / 2 - r.top) + 'px) scale(.05)';
       img.style.opacity = '.25';
     });
   });
@@ -2574,6 +2614,7 @@ function openViewer(st) {
   navPush('viewer');
 }
 function closeViewer() {
+  if (els.viewer.classList.contains('hidden')) return;
   els.viewer.classList.add('hidden');
   viewing = null;
   navBack();
@@ -2590,6 +2631,7 @@ function openDrawer(focus) {
   }
 }
 function closeDrawer() {
+  if (!els.drawer.classList.contains('open')) return; // 没开就别退历史栈(beginStamp 每拍都调,曾把界面弹回旧层)
   els.drawer.classList.remove('open');
   navBack();
 }
