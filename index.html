@@ -102,16 +102,16 @@ body{
   filter:drop-shadow(0 14px 28px rgba(60,45,15,.35));
   z-index:1;
 }
-/* 斜置艺术字水印:隐隐约约衬在邮票后面 */
+/* 斜置艺术字水印:隐隐约约衬在邮票后面;字号拉大+错位到两角,票后也能露出 */
 .wm{
   position:absolute;inset:0;z-index:0;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;
   transform:rotate(-14deg);pointer-events:none;white-space:nowrap;
   font-family:"STXingkai","KaiTi","STKaiti","Kaiti SC","DFKai-SB",serif;
-  font-weight:700;font-size:96px;line-height:1.22;letter-spacing:10px;
-  color:#8b7f66;opacity:.09;user-select:none;
+  font-weight:700;font-size:clamp(100px,26vw,190px);line-height:1.18;letter-spacing:10px;
+  color:#8b7f66;opacity:.13;user-select:none;
 }
-.wm span:nth-child(2){margin-left:130px}
+.wm span:nth-child(1){align-self:flex-start;margin-left:1vw}
+.wm span:nth-child(2){align-self:flex-end;margin-right:1vw}
 #stampScreen.dark-bg .wm{color:#c8cfe0;opacity:.12}
 #stampCanvas{display:block;height:min(56vh,500px);width:auto;max-width:min(92vw,560px);border-radius:3px;cursor:pointer;touch-action:none}
 #stampCanvas.thump{animation:thump .45s cubic-bezier(.2,1.4,.4,1)}
@@ -153,6 +153,8 @@ body{
 .primary-btn:active{transform:scale(.96)}
 .primary-btn:disabled{opacity:.5}
 .text-btn{border:none;background:none;color:#7a6f57;font-size:14px;padding:10px 6px;cursor:pointer;white-space:nowrap}
+.text-btn.on{color:var(--accent);font-weight:700}
+#stampScreen.dark-bg .text-btn.on{color:#e8c9a0}
 .text-btn.light{color:#f3ecdd}
 .text-btn.danger{color:#ff8a8a}
 
@@ -299,6 +301,7 @@ body{
     <button id="retakeBtn" class="text-btn">重拍</button>
     <button id="saveBtn" class="primary-btn">📮 收进邮册</button>
     <button id="editBtn" class="text-btn">✏️ 定制</button>
+    <button id="markToggleBtn" class="text-btn on">📮 邮戳·开</button>
     <button id="doodleBtn" class="text-btn">✍️ 寄语</button>
     <button id="downloadBtn" class="text-btn">下载</button>
     <button id="stickerBtn" class="text-btn">贴纸</button>
@@ -706,7 +709,7 @@ var settings = {
 
 var els = {};
 ['video', 'warpCv', 'vfWrap', 'vfOuter', 'focusRing', 'torchBtn', 'grid9', 'gridChips', 'faceLayer', 'makeupCv', 'makeupChips', 'shapeFile', 'flash', 'timerBtn', 'countdown', 'fileInput', 'camScreen', 'stampScreen', 'albumScreen',
- 'stampCanvas', 'cutter', 'stampHint', 'stampActions', 'retakeBtn', 'saveBtn', 'downloadBtn', 'editBtn',
+ 'stampCanvas', 'cutter', 'stampHint', 'stampActions', 'retakeBtn', 'saveBtn', 'downloadBtn', 'editBtn', 'markToggleBtn',
  'albumBtn', 'albumBadge', 'flipBtn', 'fxBtn', 'uploadBtn', 'shutterBtn', 'backBtn', 'albumGrid',
  'albumEmpty', 'emptyBackBtn', 'albumCount2', 'viewer', 'viewerImg',
  'organizeBtn', 'albumSelBar', 'selCount', 'selAllBtn', 'selShareBtn', 'selDelBtn', 'stickerBtn',
@@ -1271,6 +1274,20 @@ function dateStr() {
     String(n.getDate()).padStart(2, '0');
 }
 
+/* 邮戳墨色自适应:按票面平均亮度选墨,暗底浅戳、浅底深戳,避免戳隐没在照片里 */
+function photoMeanLum(c) {
+  var t = document.createElement('canvas');
+  t.width = 16; t.height = 16;
+  var g = t.getContext('2d', { willReadFrequently: true });
+  g.drawImage(c, 0, 0, 16, 16);
+  var d = g.getImageData(0, 0, 16, 16).data, s = 0;
+  for (var i = 0; i < d.length; i += 4) s += d[i] * 0.3 + d[i + 1] * 0.6 + d[i + 2] * 0.1;
+  return s / 256;
+}
+function markInkColor() {
+  return (current.photoLum !== undefined && current.photoLum < 110) ? '#ddd5c2' : '#26417a';
+}
+
 function drawPostmark(g, pos, style, size, alpha) {
   g.save();
   g.translate(pos.x, pos.y);
@@ -1318,7 +1335,7 @@ function drawPostmark(g, pos, style, size, alpha) {
     g.font = '6.5px "Times New Roman",Georgia,serif';
     g.fillText('U N D E R W O R L D', 0, 43);
   } else if (style.id === 'frame') {
-    g.strokeStyle = g.fillStyle = '#26417a';
+    g.strokeStyle = g.fillStyle = markInkColor();
     g.lineWidth = 2.2;
     g.strokeRect(-84, -48, 168, 96);
     g.lineWidth = 1.1;
@@ -1335,7 +1352,7 @@ function drawPostmark(g, pos, style, size, alpha) {
     g.fillText('✦', 62, 1);
   } else { // standard 标准日戳
     var r = 58;
-    g.strokeStyle = g.fillStyle = '#26417a';
+    g.strokeStyle = g.fillStyle = markInkColor();
     g.lineWidth = 2.2;
     g.beginPath(); g.arc(0, 0, r, 0, 6.2832); g.stroke();
     g.lineWidth = 1.1;
@@ -1598,6 +1615,8 @@ function beginStamp(photoCv) {
   }
   current.markPos = getMarkPos();
   current.fx = makeWear((Math.random() * 1e9) | 0);
+  current.photoLum = photoMeanLum(photoCv); // 票面平均亮度,邮戳墨色自适应用
+  viewScale = 1; // 新票复位缩放
   closeDrawer();
   show(els.stampScreen);
   els.stampActions.classList.remove('show');
@@ -1846,26 +1865,23 @@ async function startCamera() {
   if (!(await restart(facing))) toast('相机不可用,点击左下角用相片做邮票');
 }
 
-// 闪光三态:关 → 常亮(torch,近拍补光) → 屏幕补光(拍照瞬间全屏白 0.4s,自拍补脸) → 关;
-// Web 拿不到硬件闪光同步,屏闪是前置补光的唯一路(NOMO 等同类做法)
+// 补光分摄位:后摄走 LED(torch 常亮 / 闪光=拍摄瞬间 LED 亮一下,真闪光灯);
+// 前摄没 LED,走屏幕补光(全屏白 0.55s,脸贴近屏幕才有效——Web 无法调屏幕亮度)
 var flashMode = 'off';
+function flashModes() { return facing === 'user' ? ['off', 'screen'] : ['off', 'torch', 'flash']; }
 els.torchBtn.addEventListener('click', async function () {
-  var t = stream && stream.getVideoTracks()[0];
-  var next = flashMode === 'off' ? 'torch' : flashMode === 'torch' ? 'screen' : 'off';
+  var list = flashModes();
+  var next = list[(list.indexOf(flashMode) + 1) % list.length] || 'off';
   flashMode = next;
   els.torchBtn.classList.toggle('on', flashMode !== 'off');
+  var t = stream && stream.getVideoTracks()[0];
+  var torch = function (v) { if (t) t.applyConstraints({ advanced: [{ torch: v }] }).catch(function () {}); };
   if (flashMode === 'torch') {
-    try {
-      await t.applyConstraints({ advanced: [{ torch: true }] });
-      toast('常亮补光开');
-    } catch (e) {
-      flashMode = 'screen';
-      els.torchBtn.classList.toggle('on', true);
-      toast('这台设备不支持常亮,改用屏幕补光');
-    }
+    try { await t.applyConstraints({ advanced: [{ torch: true }] }); toast('常亮补光开'); }
+    catch (e) { flashMode = 'off'; els.torchBtn.classList.remove('on'); toast('这台设备不支持常亮补光'); }
   } else {
-    if (t) t.applyConstraints({ advanced: [{ torch: false }] }).catch(function () {});
-    toast(flashMode === 'screen' ? '拍照时屏幕补光' : '补光已关');
+    torch(false);
+    toast(flashMode === 'screen' ? '屏幕补光:自拍时脸贴近屏幕' : flashMode === 'flash' ? '拍照时闪光' : '补光已关');
   }
 });
 
@@ -2331,10 +2347,12 @@ function shutter() {
   if (afBusy) { toast('对焦中,松开再拍'); return; }
   if (shooting) return;
   if (!els.video.videoWidth) { toast('相机没准备好,试试左下角导入照片'); return; }
-  var fire = function () {
-    els.flash.classList.remove('on');
-    void els.flash.offsetWidth;
-    els.flash.classList.add('on');
+  var fire = function (blink) {
+    if (blink) { // 快门白闪只在非屏闪模式来一次:屏闪本身保持白屏,不再叠第二下
+      els.flash.classList.remove('on');
+      void els.flash.offsetWidth;
+      els.flash.classList.add('on');
+    }
     var sw = els.video.videoWidth, sh = els.video.videoHeight, mirror = facing === 'user';
     var frame = grabFrame(els.video, sw, sh, mirror);
     var faceData = null;
@@ -2351,15 +2369,24 @@ function shutter() {
       beginStamp(processPhoto(frame, faceData, mk));
     });
   };
-  if (flashMode === 'screen') { // 先亮屏 0.38s 给被摄者补光,取帧后再暗下来
+  if (flashMode === 'screen') { // 先亮屏 0.55s 给脸补光,取帧后再暗下来
     els.flash.classList.add('fill');
     setTimeout(function () {
-      fire();
-      setTimeout(function () { els.flash.classList.remove('fill'); }, 400);
-    }, 380);
+      fire(false);
+      setTimeout(function () { els.flash.classList.remove('fill'); }, 450);
+    }, 550);
     return;
   }
-  fire();
+  if (flashMode === 'flash') { // 后置 LED:亮灯 0.26s 再取帧,拍完即灭
+    var tf = stream && stream.getVideoTracks()[0];
+    if (tf) tf.applyConstraints({ advanced: [{ torch: true }] }).catch(function () {});
+    setTimeout(function () {
+      fire(true);
+      if (tf) tf.applyConstraints({ advanced: [{ torch: false }] }).catch(function () {});
+    }, 260);
+    return;
+  }
+  fire(true);
 }
 
 /* 定时拍摄:倒计时结束自动快门 */
@@ -2712,6 +2739,7 @@ function applyStyleCommon() {
 }
 
 function buildChips() {
+  if (els.markToggleBtn) syncMarkToggle(); // 开关按钮文案跟随(模板/单击邮戳换样式也会走到这)
   chipsRow(els.tplChips, TEMPLATES, function (t) { return t.id === settings.tplId; }, applyTemplate);
   chipsRow(els.styleChips, STYLES, function (s) { return s.id === settings.styleId; }, applyStyle);
   chipsRow(els.shutterChips, SHUTTER_STYLES, function (s) { return s.id === settings.shutter; }, function (s) {
@@ -2840,6 +2868,14 @@ var markHoldT = 0, markHoldFired = false; // 长按邮戳 550ms=打开抽屉邮�
 function clearMarkHold() { if (markHoldT) { clearTimeout(markHoldT); markHoldT = 0; } }
 els.stampCanvas.addEventListener('click', function (e) {
   if (suppressClick) { suppressClick = false; return; }
+  var now = +new Date(); // 双击(非缩放态)复位票面缩放
+  if (now - lastTapT < 300 && viewScale > 1) {
+    viewScale = 1;
+    applyStampAngle();
+    lastTapT = 0;
+    return;
+  }
+  lastTapT = now;
   if (!current.photo || current.view !== 'stamp' || !els.stampActions.classList.contains('show')) return;
   var p = stampPoint(e), x = p.x, y = p.y;
   var band = D.top + D.ph;
@@ -2864,8 +2900,13 @@ els.stampCanvas.addEventListener('click', function (e) {
 var drag = null;
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 function applyStampAngle() {
-  els.stampCanvas.style.transform = settings.stampAngle ? 'rotate(' + settings.stampAngle + 'deg)' : '';
+  els.stampCanvas.style.transform =
+    (settings.stampAngle ? 'rotate(' + settings.stampAngle + 'deg)' : '') +
+    (viewScale > 1 ? ' scale(' + viewScale + ')' : '');
 }
+// 票面缩放:双指捏合 1~3 倍(以票心放大,ponytail: 不做捏合点跟随,升级路径是
+// transform-origin 跟手),双击复位;单指拖戳/文字/旋转不受影响
+var viewScale = 1, pinchPts = {}, pinchBase = 0, scaleBase = 1, lastTapT = 0;
 // 屏幕坐标 → 邮票设计坐标(抵消票体旋转)
 function stampPoint(e) {
   var el = els.stampCanvas, r = el.getBoundingClientRect();
@@ -2889,6 +2930,22 @@ function textAt(p) { // 命中面值/发行方文字框
 
 els.stampCanvas.addEventListener('pointerdown', function (e) {
   if (!current.photo || current.view !== 'stamp' || !els.stampActions.classList.contains('show')) return;
+  pinchPts[e.pointerId] = { x: e.clientX, y: e.clientY };
+  var pn = 0; for (var pc in pinchPts) pn++;
+  if (pn === 2 || (pn === 1 && pinchBase > 0)) {
+    // 双指进入缩放:取消单指语义(拖戳/旋转),等第二指落定基准距
+    drag = null;
+    clearMarkHold();
+    markHoldFired = false;
+    var ps = [];
+    for (var k in pinchPts) ps.push(pinchPts[k]);
+    if (ps.length === 2) {
+      pinchBase = Math.hypot(ps[0].x - ps[1].x, ps[0].y - ps[1].y);
+      scaleBase = viewScale;
+    }
+    e.preventDefault();
+    return;
+  }
   var p = stampPoint(e), m = current.markPos;
   var mode = 'none', tx = null;
   if (settings.mark !== 'none' && m && Math.hypot(p.x - m.x, p.y - m.y) < 95) mode = 'mark';
@@ -2919,6 +2976,16 @@ els.stampCanvas.addEventListener('pointerdown', function (e) {
   e.preventDefault();
 });
 els.stampCanvas.addEventListener('pointermove', function (e) {
+  if (pinchPts[e.pointerId]) pinchPts[e.pointerId] = { x: e.clientX, y: e.clientY };
+  var pn2 = 0; for (var pm in pinchPts) pn2++;
+  if (pinchBase > 0 && pn2 >= 2) { // 双指缩放中
+    var pp = [];
+    for (var pk in pinchPts) pp.push(pinchPts[pk]);
+    var dNow = Math.hypot(pp[0].x - pp[1].x, pp[0].y - pp[1].y);
+    viewScale = Math.min(3, Math.max(1, scaleBase * dNow / pinchBase));
+    applyStampAngle();
+    return;
+  }
   if (!drag || e.pointerId !== drag.id) return;
   var p = stampPoint(e);
   if (drag.mode === 'mark') {
@@ -2943,7 +3010,10 @@ els.stampCanvas.addEventListener('pointermove', function (e) {
   }
 });
 function endDrag(e) {
-  if (!drag || e.pointerId !== drag.id) return;
+  if (pinchPts[e.pointerId]) delete pinchPts[e.pointerId];
+  var pn3 = 0; for (var po in pinchPts) pn3++;
+  if (pn3 < 2) pinchBase = 0; // 抬起一指退出缩放态
+  if (e.pointerId && drag && e.pointerId !== drag.id) return;
   var moved = drag.moved, mode = drag.mode;
   var held = markHoldFired;
   drag = null;
@@ -2968,6 +3038,22 @@ function cyclePerf() {
   buildChips();
   toast('齿孔 · ' + p.name);
 }
+
+// 邮戳开关:一键盖/不盖;记住关掉前的样式,再开时还原
+var lastMark = 'standard';
+function syncMarkToggle() {
+  var on = settings.mark !== 'none';
+  els.markToggleBtn.textContent = on ? '📮 邮戳·开' : '📮 邮戳·关';
+  els.markToggleBtn.classList.toggle('on', on);
+}
+els.markToggleBtn.addEventListener('click', function () {
+  if (settings.mark === 'none') settings.mark = lastMark || 'standard';
+  else { lastMark = settings.mark; settings.mark = 'none'; }
+  if (settings.mark !== 'none' && settings.markPos === 'random') current.markPos = randMarkPos();
+  syncMarkToggle();
+  rerender();
+  buildChips();
+});
 
 function cycleMark() {
   var i = MARK_STYLES.findIndex(function (m) { return m.id === settings.mark; });
