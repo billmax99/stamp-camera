@@ -18,7 +18,8 @@ body{
   background:#101010;color:#eee;overflow:hidden;user-select:none;-webkit-user-select:none;
 }
 .hidden{display:none!important}
-.screen{position:fixed;inset:0;display:flex;flex-direction:column}
+.screen{position:fixed;inset:0;display:flex;flex-direction:column;animation:screenin .18s ease}
+@keyframes screenin{from{opacity:.35}}
 
 /* ————— ① 相机屏 ————— */
 #camScreen{background:#000}
@@ -737,6 +738,9 @@ var els = {};
 function show(screen, viaBack) {
   [els.camScreen, els.stampScreen, els.albumScreen].forEach(function (s) { s.classList.add('hidden'); });
   screen.classList.remove('hidden');
+  screen.style.animation = 'none';
+  void screen.offsetWidth; // 重触发入场淡入,切屏不生硬
+  screen.style.animation = '';
   if (screen === els.albumScreen) renderAlbum();
   if (!viaBack) navPush(screen.id);
 }
@@ -1630,9 +1634,10 @@ function beginStamp(photoCv) {
   closeDrawer();
   show(els.stampScreen);
   els.stampActions.classList.remove('show');
-  els.stampHint.textContent = '✂ 裁切中…';
+  els.stampHint.textContent = '✂ 裁切中… 等不及点一下立即出票';
   els.stampCanvas.classList.remove('thump');
   els.saveBtn.disabled = false;
+  els.saveBtn.textContent = '📮 收进邮册'; // 新票复位存册按钮(上一张可能已置"已在邮册")
   var perf = idOf(PERF_STYLES, settings.perf);
   var cut = idOf(CUT_MODES, settings.cut);
   current.holes = (perf.id === 'none') ? [] : perforationPath(D.w, D.h, perf.gap);
@@ -1646,11 +1651,11 @@ function beginStamp(photoCv) {
   var n = current.holes.length;
   var t0 = performance.now(), DUR = cut.dur;
   // ponytail: 用 setInterval 而非 rAF——WebView 切后台时 rAF 停转,裁切会永久卡住;interval 慢但保证走完。
-  var timer = setInterval(function () {
+  current.cutTimer = setInterval(function () {
     var p = Math.min(1, (performance.now() - t0) / DUR);
     var holes = renderStamp(photoCv, p);
     placeCutter(holes[Math.min(n - 1, Math.floor(p * n))]);
-    if (p >= 1) { clearInterval(timer); finishCut(); }
+    if (p >= 1) finishCut();
   }, 16);
 }
 
@@ -1662,6 +1667,7 @@ function placeCutter(h) {
 }
 
 function finishCut() {
+  if (current.cutTimer) { clearInterval(current.cutTimer); current.cutTimer = 0; } // 点一下跳过裁切时也要停表(幂等)
   els.cutter.classList.add('hidden');
   // 显影动画(NOMO 式仪式感):拍完的票从模糊亮场渐渐浮现
   els.stampCanvas.classList.remove('develop');
@@ -1849,13 +1855,16 @@ els.camScreen.addEventListener('click', function (e) {
   tapFocus(vx, vy);
 });
 
+var startSeq = 0; // 假起自愈会并发发起多次起流:只认最后一次,迟到的旧流直接丢弃
 async function restart(want) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+  var seq = ++startSeq;
   try {
     var s = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: want, width: { ideal: 1280 }, height: { ideal: 1280 } },
       audio: false
     });
+    if (seq !== startSeq) { s.getTracks().forEach(function (t) { t.stop(); }); return !!stream; }
     if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
     stream = s;
     facing = want;
@@ -2332,9 +2341,16 @@ function watchDarkness() {
   var c = document.createElement('canvas');
   c.width = 32; c.height = 43;
   var g = c.getContext('2d');
-  var dark = 0, retried = false, warned = false;
+  var dark = 0, retried = false, warned = false, stall = 0, stallRetried = false;
   setInterval(function () {
-    if (els.camScreen.classList.contains('hidden') || !els.video.videoWidth) { dark = 0; return; }
+    if (els.camScreen.classList.contains('hidden')) { dark = 0; stall = 0; return; }
+    if (!els.video.videoWidth) { // 假起:getUserMedia 挂着不出帧(MIUI 冷启动常见),重启流
+      stall++;
+      if (stall === 5 && !stallRetried) { stallRetried = true; restart(facing); return; }
+      if (stall === 9 && stallRetried) toast('相机起不来:请退出应用重新打开一次');
+      return;
+    }
+    stall = 0; stallRetried = false;
     try {
       g.drawImage(els.video, 0, 0, 32, 43);
       var d = g.getImageData(0, 0, 32, 43).data;
@@ -2557,13 +2573,10 @@ function saveStamp() {
   if (!persist()) { album.shift(); return; }
   current.saved = true;
   els.saveBtn.disabled = true;
+  els.saveBtn.textContent = '✓ 已在邮册'; // 留在票屏:还能下载/分享/寄语,走时用重拍或返回键
   flyToAlbum(item.img);
-  toast('已收进应用内邮册 📮 下载/分享才会进系统相册');
+  toast('已收进应用内邮册 📮 可继续下载/分享');
   updateBadge();
-  setTimeout(function () {
-    if (current.view === 'sheet') current.batch = [];
-    show(els.camScreen);
-  }, 950);
 }
 
 /* ============ 下载 ============ */
@@ -2883,6 +2896,7 @@ var markHoldT = 0, markHoldFired = false; // 长按邮戳 550ms=打开抽屉邮�
 function clearMarkHold() { if (markHoldT) { clearTimeout(markHoldT); markHoldT = 0; } }
 els.stampCanvas.addEventListener('click', function (e) {
   if (suppressClick) { suppressClick = false; return; }
+  if (!els.cutter.classList.contains('hidden')) { finishCut(); return; } // 裁切动画:点一下立即出票
   var now = +new Date(); // 双击(非缩放态)复位票面缩放
   if (now - lastTapT < 300 && viewScale > 1) {
     viewScale = 1;
@@ -3310,6 +3324,26 @@ els.selDelBtn.addEventListener('click', function () {
 els.backBtn.addEventListener('click', function () { show(els.camScreen); });
 els.emptyBackBtn.addEventListener('click', function () { show(els.camScreen); });
 els.viewerClose.addEventListener('click', closeViewer);
+
+// 看大图左右滑:左滑下一张(更旧)、右滑上一张(更新),免去退出再点
+var swipeX = 0, swipeY = 0;
+els.viewer.addEventListener('touchstart', function (e) {
+  swipeX = e.touches[0].clientX;
+  swipeY = e.touches[0].clientY;
+}, { passive: true });
+els.viewer.addEventListener('touchend', function (e) {
+  if (!viewing) return;
+  var dx = e.changedTouches[0].clientX - swipeX;
+  var dy = e.changedTouches[0].clientY - swipeY;
+  if (Math.abs(dx) < 60 || Math.abs(dy) > 90) return;
+  var i = album.indexOf(viewing);
+  if (i < 0) return;
+  var j = dx < 0 ? i + 1 : i - 1;
+  if (j < 0) { toast('已是最新一张'); return; }
+  if (j >= album.length) { toast('已是最后一张'); return; }
+  viewing = album[j];
+  els.viewerImg.src = viewing.img;
+});
 els.viewer.addEventListener('click', function (e) { if (e.target === els.viewer) closeViewer(); });
 els.viewerDownload.addEventListener('click', function () {
   if (viewing) download(viewing.img, '邮票_' + (viewing.date || '').slice(0, 10) + '.jpg');
