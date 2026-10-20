@@ -101,7 +101,10 @@ body{
   margin:auto;position:relative;display:inline-block;align-self:center;
   filter:drop-shadow(0 14px 28px rgba(60,45,15,.35));
   z-index:1;
+  transition:transform .28s cubic-bezier(.3,1,.4,1);
 }
+/* 定制抽屉打开时票面缩小上移,露出抽屉上沿,边改边对照不被挡 */
+#stampScreen.editing .stamp-stage{transform:translateY(-15vh) scale(.56)}
 /* 斜置艺术字水印:隐隐约约衬在邮票后面;字号拉大+错位到两角,票后也能露出 */
 .wm{
   position:absolute;inset:0;z-index:0;display:flex;flex-direction:column;
@@ -143,6 +146,7 @@ body{
   padding:6px 14px calc(env(safe-area-inset-bottom,0px) + 18px);
 }
 .doodle-ops{display:flex;align-items:center;gap:8px;width:100%;max-width:430px}
+.doodle-hint{font-size:12px;color:#8b7f66;letter-spacing:1px;text-align:center}
 .doodle-ops .slider-row{flex:1;margin-top:0}
 .doodle-ops .text-btn{flex:none}
 .primary-btn{
@@ -169,6 +173,7 @@ body{
 .drawer.open{pointer-events:auto}
 .drawer.open .drawer-mask{opacity:1}
 .drawer.open .drawer-panel{transform:none}
+.drawer.on-stamp .drawer-panel{max-height:56%} /* 邮票屏定制:压矮抽屉,票面留在上半屏 */
 .drawer-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
 .drawer-head span{font-weight:700;letter-spacing:1px;font-size:16px}
 #drawerClose{border:none;background:var(--accent);color:#fff;border-radius:999px;padding:8px 20px;font-size:14px;cursor:pointer}
@@ -308,6 +313,7 @@ body{
     <button id="shareBtn" class="text-btn">分享</button>
   </footer>
   <div id="doodleBar" class="doodle-bar hidden">
+    <div class="doodle-hint">手指在邮票上写字或涂鸦,点完成自动烙进票面</div>
     <div class="chips" id="doodleColorChips"></div>
     <div class="doodle-ops">
       <label class="slider-row">粗细<input type="range" id="doodleWidthRange" min="3" max="15" value="6"></label>
@@ -750,7 +756,11 @@ function navBack() { // 主动关一层(完成/蒙层/取消):消费掉自己压
 function closeTopOverlays() { // 返回键恢复到某层:先合上所有浮层(幂等)
   if (!els.viewer.classList.contains('hidden')) closeViewer();
   if (!els.kissEditor.classList.contains('hidden')) { kissEdit = null; els.kissEditor.classList.add('hidden'); }
-  if (els.drawer.classList.contains('open')) els.drawer.classList.remove('open');
+  if (els.drawer.classList.contains('open')) {
+    els.drawer.classList.remove('open');
+    els.drawer.classList.remove('on-stamp');
+    els.stampScreen.classList.remove('editing');
+  }
 }
 window.addEventListener('popstate', function (e) {
   var z = (e.state && e.state.z) || 'camScreen';
@@ -2650,6 +2660,9 @@ function closeViewer() {
 /* ============ 定制抽屉 ============ */
 function openDrawer(focus) {
   els.drawer.classList.add('open');
+  var onStamp = !els.stampScreen.classList.contains('hidden');
+  els.drawer.classList.toggle('on-stamp', onStamp);
+  els.stampScreen.classList.toggle('editing', onStamp);
   navPush('drawer');
   if (focus === 'value' || focus === 'issuer') {
     setTimeout(function () {
@@ -2660,6 +2673,8 @@ function openDrawer(focus) {
 function closeDrawer() {
   if (!els.drawer.classList.contains('open')) return; // 没开就别退历史栈(beginStamp 每拍都调,曾把界面弹回旧层)
   els.drawer.classList.remove('open');
+  els.drawer.classList.remove('on-stamp');
+  els.stampScreen.classList.remove('editing');
   navBack();
 }
 // 键盘弹起时把正在输入的框滚进可视区(抽屉面板可滚,adjustResize 后视口已缩)
@@ -3245,13 +3260,19 @@ els.doodleCv.addEventListener('pointerdown', function (ev) {
 els.doodleCv.addEventListener('pointermove', function (ev) {
   if (!doodleStroke) return;
   var p = doodlePos(ev), last = doodleStroke.pts[doodleStroke.pts.length - 1];
-  if (Math.abs(p[0] - last[0]) + Math.abs(p[1] - last[1]) < 1.2) return; // 压掉原地抖动点
-  doodleStroke.pts.push(p);
+  var dx = p[0] - last[0], dy = p[1] - last[1];
+  if (dx * dx + dy * dy < 4) return; // <2 设计像素:压原地抖动
+  // 指数平滑:落点只向原始点收敛 40%,高频手抖被滤掉,画圈/心形边缘自然圆润;
+  // 渲染端中点贝塞尔 + 收笔抛光再兜两层,叠加出顺滑曲线
+  doodleStroke.pts.push([last[0] + dx * 0.4, last[1] + dy * 0.4]);
   drawDoodlePreview();
 });
 ['pointerup', 'pointercancel'].forEach(function (t) {
   els.doodleCv.addEventListener(t, function () {
     if (!doodleStroke) return;
+    var s = doodleStroke.pts, i; // 收笔抛光:相邻四点加权均值再抹一遍毛刺
+    for (i = 1; i < s.length - 1; i++)
+      s[i] = [(s[i - 1][0] + s[i][0] * 2 + s[i + 1][0]) / 4, (s[i - 1][1] + s[i][1] * 2 + s[i + 1][1]) / 4];
     current.doodles.push(doodleStroke); // 抬手才烙进票面
     doodleStroke = null;
     var g = els.doodleCv.getContext('2d');
