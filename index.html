@@ -1783,9 +1783,11 @@ async function tapFocus(cx, cy) {
   afBusy = true;
   var px = cx, py = cy;
 
-  // —— 快路径:系统单次对焦 + 清晰度轮询验证真伪 ——
-  // 上报支持≠真干活(vivo 假单次只回 ok):发出去后 110ms 一拍测清晰度,
-  // 真爬升→走平即收敛早退(典型 0.3~0.5s,比死等快);半秒没起色=假的,本会话记死走扫描
+  // —— 快路径:系统单次对焦 + 过程验真 ——
+  // 上报支持≠真干活(vivo 假单次只回 ok)。判据是"镜片动过没有":轮询期间清晰度
+  // 有 ≥10% 起伏=镜片真在动;全程纹丝不动且点位纹理本就不如中心=假单次,记住走扫描。
+  // 不能要求"必须比基线更清晰"——连续对焦本来已对准时单次只是微调,永远涨不出
+  // 阈值,会被误判假单次坠入扫描拉风箱(真机反馈实锤,已改)
   if (focusPath[facing] !== 'scan') {
     var modes = null;
     try { modes = (t.getCapabilities && t.getCapabilities().focusMode) || null; } catch (e) {}
@@ -1793,27 +1795,28 @@ async function tapFocus(cx, cy) {
       // 死点防护:点在暗部/无纹理处,对比度 AF 无参照会狂奔到微距端糊满屏(真机实锤),
       // 点位纹理远低于中心时改点中心
       if (regionSharpness(px, py) < regionSharpness(0.5, 0.42) * 0.6) { px = 0.5; py = 0.42; }
-      var base = Math.max(regionSharpness(px, py), regionSharpness(px, py));
+      var base = regionSharpness(px, py);
+      var centerBase = regionSharpness(0.5, 0.42);
       var ok2 = false;
       try { ok2 = await t.applyConstraints({ advanced: [{ focusMode: 'single-shot', points: [{ x: cx, y: cy }] }] }) !== false; } catch (e) {}
       if (ok2) {
-        var last = base, flat = 0, worked = false, ms = 0;
-        while (ms < 900) {
-          await new Promise(function (r) { setTimeout(r, 110); });
-          ms += 110;
+        var prev = base, sprev = base, swing = 0, ms = 0;
+        while (ms < 600) {
+          await new Promise(function (r) { setTimeout(r, 100); });
+          ms += 100;
           var s = regionSharpness(px, py);
-          if (s > base * 1.06) worked = true;
-          if (worked && s < last * 1.02) { if (++flat >= 2) break; } else flat = 0;
-          last = Math.max(last, s);
-          if (!worked && ms >= 550) break; // 半秒无起色:假单次
+          swing = Math.max(swing, Math.abs(s - prev) / Math.max(prev, 1));
+          if (ms >= 400 && Math.abs(s - sprev) < Math.max(sprev, 1) * 0.03) break; // 已走平,提前收工
+          sprev = s; prev = s;
         }
-        if (worked) {
+        var real = swing > 0.10 || base >= centerBase * 0.5; // 动过=真;没动但点位本就清晰=已对准
+        if (real) {
           focusPath[facing] = 'single';
           lastFocus = 0; // 镜片交回系统,手动记忆作废
           afBusy = false;
           return;
         }
-        focusPath[facing] = 'scan';
+        focusPath[facing] = 'scan'; // 假单次(如 vivo):全会话直接走扫描
       }
     }
   }
