@@ -312,7 +312,6 @@ body{
     <button id="markToggleBtn" class="text-btn on">📮 邮戳·开</button>
     <button id="doodleBtn" class="text-btn">✍️ 寄语</button>
     <button id="downloadBtn" class="text-btn">下载</button>
-    <button id="stickerBtn" class="text-btn">贴纸</button>
     <button id="shareBtn" class="text-btn">分享</button>
   </footer>
   <div id="doodleBar" class="doodle-bar hidden">
@@ -721,7 +720,7 @@ var els = {};
  'stampCanvas', 'cutter', 'stampHint', 'stampActions', 'retakeBtn', 'saveBtn', 'downloadBtn', 'editBtn', 'markToggleBtn',
  'albumBtn', 'albumBadge', 'flipBtn', 'fxBtn', 'uploadBtn', 'shutterBtn', 'backBtn', 'albumGrid',
  'albumEmpty', 'emptyBackBtn', 'albumCount2', 'viewer', 'viewerImg',
- 'organizeBtn', 'albumSelBar', 'selCount', 'selAllBtn', 'selShareBtn', 'selDelBtn', 'stickerBtn',
+ 'organizeBtn', 'albumSelBar', 'selCount', 'selAllBtn', 'selShareBtn', 'selDelBtn',
  'doodleBtn', 'doodleCv', 'doodleBar', 'doodleColorChips', 'doodleWidthRange', 'doodleUndoBtn', 'doodleClearBtn', 'doodleDoneBtn',
  'kissEditor', 'kissCv', 'kissEraseBtn', 'kissKeepBtn', 'kissBrushRange', 'kissCancelBtn', 'kissOkBtn',
  'viewerDownload', 'viewerDelete', 'viewerClose', 'viewerShare', 'toast',
@@ -2603,6 +2602,23 @@ function paintBackdrop(g, w, h) {
   }
 }
 
+// 纯票输出:透明底,像一张真邮票(下载/分享用);票体旋转时撑大画布留角。
+// 桌布版(composeOutput)只给邮册存档用
+function composeStamp() {
+  var src = els.stampCanvas;
+  var a = (current.view === 'stamp' ? (settings.stampAngle || 0) : 0) * Math.PI / 180;
+  if (!a) return src;
+  var w = src.width, h = src.height;
+  var c = document.createElement('canvas');
+  c.width = Math.round(Math.abs(w * Math.cos(a)) + Math.abs(h * Math.sin(a)));
+  c.height = Math.round(Math.abs(w * Math.sin(a)) + Math.abs(h * Math.cos(a)));
+  var g = c.getContext('2d');
+  g.translate(c.width / 2, c.height / 2);
+  g.rotate(a);
+  g.drawImage(src, -w / 2, -h / 2);
+  return c;
+}
+
 function composeOutput() {
   var src = els.stampCanvas;
   var a = (current.view === 'stamp' ? (settings.stampAngle || 0) : 0) * Math.PI / 180;
@@ -3203,12 +3219,8 @@ els.retakeBtn.addEventListener('click', function () {
 els.saveBtn.addEventListener('click', saveStamp);
 els.editBtn.addEventListener('click', function () { openDrawer(); });
 els.downloadBtn.addEventListener('click', function () {
-  download(composeOutput().toDataURL('image/png'), filePrefix() + '_' + ts() + '.png');
-});
-// 贴纸:齿孔/外形外全是透明,stampCanvas 直接存 PNG 给手账 app 用
-els.stickerBtn.addEventListener('click', function () {
-  download(els.stampCanvas.toDataURL('image/png'), filePrefix() + '_贴纸_' + ts() + '.png');
-  toast('透明底贴纸已下载');
+  download(composeStamp().toDataURL('image/png'), filePrefix() + '_' + ts() + '.png');
+  toast('透明底邮票已下载');
 });
 
 /* ============ 寄语:手指当笔,在票面上写字画画 ============ */
@@ -3318,7 +3330,7 @@ els.doodleCv.addEventListener('pointermove', function (ev) {
 });
 window.addEventListener('resize', function () { if (doodling) closeDoodle(); }); // 转屏后叠层会错位,直接退出
 els.shareBtn.addEventListener('click', async function () {
-  shareImage(await canvasBlob(composeOutput()), filePrefix() + '_' + ts() + '.png');
+  shareImage(await canvasBlob(composeStamp()), filePrefix() + '_' + ts() + '.png');
 });
 els.viewerShare.addEventListener('click', function () {
   if (viewing) shareImage(dataURLBlob(viewing.img), '邮票_' + (viewing.date || '').slice(0, 10) + '.jpg');
