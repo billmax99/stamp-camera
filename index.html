@@ -2566,6 +2566,43 @@ function filePrefix() {
   return '邮票';
 }
 // 输出合成:垫上邮册底色,并把票体旋转角烘焙进位图
+// 桌布画进成片:与票屏 BACKDROPS 的 css 同款(canvas 等价式),
+// 下载/存册/分享不再在齿孔外露纯色方框
+// ponytail: 6 种桌布一支一支手写,新增桌布要同步补一支;linen 的竖条纹层
+// 在 CSS 里本就被不透明横条层整个盖住(屏幕上就看不到),此处只画横条保持一致
+function paintBackdrop(g, w, h) {
+  function radial(rx, ry, stops) { // css radial-gradient(rx ry at 50% 0%):顶部为中心的椭圆
+    g.save();
+    g.translate(w / 2, 0);
+    g.scale(rx * w, ry * h);
+    var gr = g.createRadialGradient(0, 0, 0, 0, 0, 1);
+    stops.forEach(function (s) { gr.addColorStop(s[0], s[1]); });
+    g.fillStyle = gr;
+    g.fillRect(-0.5 / rx, 0, 1 / rx, 1 / ry);
+    g.restore();
+  }
+  switch (settings.backdrop) {
+    case 'desk': radial(1.3, 0.9, [[0, '#f8f2e4'], [0.55, '#f3ecdd'], [1, '#e7dcc3']]); return;
+    case 'linen':
+      g.fillStyle = '#f6efdf'; g.fillRect(0, 0, w, h);
+      g.fillStyle = '#efe5cd';
+      for (var y = 18; y < h; y += 36) g.fillRect(0, y, w, 18);
+      return;
+    case 'blush': {
+      var a = 160 * Math.PI / 180, dx = Math.sin(a), dy = -Math.cos(a);
+      var L = Math.abs(w * dx) + Math.abs(h * dy);
+      var lg = g.createLinearGradient(w / 2 - dx * L / 2, h / 2 - dy * L / 2, w / 2 + dx * L / 2, h / 2 + dy * L / 2);
+      lg.addColorStop(0, '#fde8ec'); lg.addColorStop(0.45, '#f9d7dd'); lg.addColorStop(1, '#f3c6cf');
+      g.fillStyle = lg; g.fillRect(0, 0, w, h);
+      return;
+    }
+    case 'night': radial(1.2, 1, [[0, '#2c3e5d'], [0.55, '#1d2b42'], [1, '#131c2e']]); return;
+    case 'wine': radial(1.2, 1, [[0, '#5c1f2e'], [0.55, '#431624'], [1, '#2c0e18']]); return;
+    case 'inknight': radial(1.2, 1, [[0, '#23202b'], [0.55, '#151319'], [1, '#0c0b10']]); return;
+    default: g.fillStyle = '#f3ecdd'; g.fillRect(0, 0, w, h);
+  }
+}
+
 function composeOutput() {
   var src = els.stampCanvas;
   var a = (current.view === 'stamp' ? (settings.stampAngle || 0) : 0) * Math.PI / 180;
@@ -2573,8 +2610,7 @@ function composeOutput() {
   if (!a) {
     c.width = src.width; c.height = src.height;
     g = c.getContext('2d');
-    g.fillStyle = '#f3ecdd';
-    g.fillRect(0, 0, c.width, c.height);
+    paintBackdrop(g, c.width, c.height);
     g.drawImage(src, 0, 0);
     return c;
   }
@@ -2582,8 +2618,7 @@ function composeOutput() {
   c.width = Math.round(Math.abs(w * Math.cos(a)) + Math.abs(h * Math.sin(a)));
   c.height = Math.round(Math.abs(w * Math.sin(a)) + Math.abs(h * Math.cos(a)));
   g = c.getContext('2d');
-  g.fillStyle = '#f3ecdd';
-  g.fillRect(0, 0, c.width, c.height);
+  paintBackdrop(g, c.width, c.height);
   g.translate(c.width / 2, c.height / 2);
   g.rotate(a);
   g.drawImage(src, -w / 2, -h / 2);
