@@ -1773,24 +1773,52 @@ function regionSharpness(cx, cy) {
   return grad / (lum + 1); // 按亮度归一,免得自动曝光变亮被误判为更清晰
 }
 
+// 会话记忆各朝向实测可用的对焦路径:single=系统单次真干活;scan=假单次只能手扫(如 vivo)
+var focusPath = {};
+
 async function tapFocus(cx, cy) {
   if (afBusy || !stream) return;
   var t = stream.getVideoTracks()[0];
   if (!t || !t.applyConstraints) return;
   afBusy = true;
-  // 快路径:标准 single-shot(多数机型支持,整段 ~0.65s);失败/不支持走下面的手动扫描
-  var modes = null;
-  try { modes = (t.getCapabilities && t.getCapabilities().focusMode) || null; } catch (e) {}
-  if (modes && modes.indexOf('single-shot') >= 0) {
-    try {
-      await t.applyConstraints({ advanced: [{ focusMode: 'single-shot', points: [{ x: cx, y: cy }] }] });
-      await new Promise(function (r) { setTimeout(r, 550); });
-      lastFocus = 0; // 镜片交回系统,手动记忆作废
-      afBusy = false;
-      return;
-    } catch (e) { /* 单次对焦被拒:落回扫描 */ }
+  var px = cx, py = cy;
+
+  // —— 快路径:系统单次对焦 + 清晰度轮询验证真伪 ——
+  // 上报支持≠真干活(vivo 假单次只回 ok):发出去后 110ms 一拍测清晰度,
+  // 真爬升→走平即收敛早退(典型 0.3~0.5s,比死等快);半秒没起色=假的,本会话记死走扫描
+  if (focusPath[facing] !== 'scan') {
+    var modes = null;
+    try { modes = (t.getCapabilities && t.getCapabilities().focusMode) || null; } catch (e) {}
+    if (modes && modes.indexOf('single-shot') >= 0) {
+      // 死点防护:点在暗部/无纹理处,对比度 AF 无参照会狂奔到微距端糊满屏(真机实锤),
+      // 点位纹理远低于中心时改点中心
+      if (regionSharpness(px, py) < regionSharpness(0.5, 0.42) * 0.6) { px = 0.5; py = 0.42; }
+      var base = Math.max(regionSharpness(px, py), regionSharpness(px, py));
+      var ok2 = false;
+      try { ok2 = await t.applyConstraints({ advanced: [{ focusMode: 'single-shot', points: [{ x: cx, y: cy }] }] }) !== false; } catch (e) {}
+      if (ok2) {
+        var last = base, flat = 0, worked = false, ms = 0;
+        while (ms < 900) {
+          await new Promise(function (r) { setTimeout(r, 110); });
+          ms += 110;
+          var s = regionSharpness(px, py);
+          if (s > base * 1.06) worked = true;
+          if (worked && s < last * 1.02) { if (++flat >= 2) break; } else flat = 0;
+          last = Math.max(last, s);
+          if (!worked && ms >= 550) break; // 半秒无起色:假单次
+        }
+        if (worked) {
+          focusPath[facing] = 'single';
+          lastFocus = 0; // 镜片交回系统,手动记忆作废
+          afBusy = false;
+          return;
+        }
+        focusPath[facing] = 'scan';
+      }
+    }
   }
-  // 每档:驱动镜片→等稳→抓两帧取大(压自动曝光的亮度瞬态)
+
+  // —— 扫描路径:手动 focusDistance 爬山(每档:驱动镜片→等稳→抓两帧取大压曝光瞬态) ——
   function probe(d, settle) {
     d = Math.min(9.9, Math.max(0.16, d)); // vivo 能力下限是 float32 的 0.15000000596,留边
     return t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: d }] })
@@ -1837,7 +1865,11 @@ async function tapFocus(cx, cy) {
   }
   try { await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: cur }] }); } catch (e) {}
   lastFocus = cur;
+  focusPath[facing] = 'scan'; // 手动能对上=这机型单次不可靠,后续点击直接走扫描
   afBusy = false;
+  // 扫描后镜片停在手动档,取景器从此不自动对焦:2.5s 后悄悄回连续对焦保持常锐,
+  // 下次点击再重新扫(vivo 类机型的取景体验不再"一糊到底")
+  setTimeout(function () { if (!afBusy) applyFocus(0); }, 2500);
 }
 
 els.camScreen.addEventListener('click', function (e) {
