@@ -1767,46 +1767,128 @@ function regionSharpness(cx, cy) {
   return grad / (lum + 1); // 按亮度归一,免得自动曝光变亮被误判为更清晰
 }
 
-var fc = null, fgc = null, afBusy = false;
+var fc = null, fgc = null, afBusy = false, afWait = null, afPark = 0;
+var afMem = { cx: 0, cy: 0, d: 0, s: 0, exp: 0 }; // 重触记忆:同点 8s 内免扫直取
+var afLast = null; // 最近一次扫描的过程记录(档位/分数/耗时),真机调参用
 
-// 点击对焦:红米/vivo 的 single-shot+points 都是假动作(回 ok 镜头不动,真机实测
-// 帧差为 0),唯一受控的镜片行程是手动 focusDistance。做法:近→远单向网格扫 6 档
-// (镜头一路走不回头,没有拉风箱感),按点击区域清晰度选峰;峰不显著就交回连续对焦,
-// 不乱停。扫完停在手动档 2.5s,再悄悄回连续保持取景常锐。
-// ponytail: 假设扫描期间场景静止;曝光泵干扰靠每档抓两帧取大压;升级路径是同时锁 exposureMode
+// 停在手动档 2.5s 再回连续(取景常锐);重触会刷新计时,不会把新对焦掐死
+function parkManual() {
+  clearTimeout(afPark);
+  afPark = setTimeout(function () { if (!afBusy) applyFocus(0); }, 2500);
+}
+
+// 对数空间抛物线顶点:三个粗档的清晰度免费定位真峰位(0=曲线不凹/顶点出界,不可精修)
+function afParabola(dLo, dB, dHi, sLo, sB, sHi) {
+  var x0 = Math.log(dLo), x1 = Math.log(dB), x2 = Math.log(dHi);
+  var A = ((sHi - sLo) / (x2 - x0) - (sB - sLo) / (x1 - x0)) / (x2 - x1);
+  if (!(A < 0)) return 0;
+  var B = (sB - sLo) / (x1 - x0) - A * (x0 + x1);
+  var xv = -B / (2 * A);
+  return xv > x0 && xv < x2 ? Math.exp(xv) : 0;
+}
+
+// 点击对焦 v4:红米逐帧录得镜头每档 170~350ms 才真到位(v3 固定等 170ms,读到的是
+// 上一档残影),故 rVFC 逐帧采样,"连 3 帧波动<5% 且满 200ms"才算该档真值;
+// 近→远单向扫,清晰度跌破峰值×0.65 即峰在身后提前收兵;峰档两侧三档进抛物线,
+// 顶点偏离峰档>12% 才真动一次镜头验证;同点 8s 内重触直取上次距离(实测 0.36s)。
+// single-shot+points 在红米/vivo 都是假动作(回 ok 镜头不动),只能靠 manual focusDistance。
+// ponytail: 假设扫描期间场景与曝光基本静止(稳定场景实测帧间噪声±1.5%);
+// 曝光大变时稳定判据等满超时兜底、峰不显著交回连续对焦;rVFC 不可用退固定驻留两帧取大
 async function tapFocus(cx, cy) {
   if (afBusy || !stream) return;
   var t = stream.getVideoTracks()[0];
   if (!t || !t.applyConstraints) return;
   afBusy = true;
+  var frames = [], live = false;
+  var pump = function (now) {
+    if (live) frames.push({ t: now, sh: regionSharpness(cx, cy) });
+    if (els.video.requestVideoFrameCallback) els.video.requestVideoFrameCallback(pump);
+  };
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+  var apply = function (d) {
+    return t.applyConstraints({ advanced: [d > 0 ? { focusMode: 'manual', focusDistance: d } : { focusMode: 'continuous' }] }).catch(function () {});
+  };
+  var settle = function (budget) { // 稳定即真值;超时兜底取尾 3 帧均值
+    var s0 = performance.now();
+    return new Promise(function (done) {
+      var iv = setInterval(function () {
+        var el = performance.now() - s0;
+        var fs = frames.filter(function (f) { return f.t >= s0; });
+        var ok = fs.length >= 3
+          && Math.abs(fs[fs.length - 2].sh - fs[fs.length - 3].sh) < 0.05 * (fs[fs.length - 3].sh + 1e-9)
+          && Math.abs(fs[fs.length - 1].sh - fs[fs.length - 2].sh) < 0.05 * (fs[fs.length - 2].sh + 1e-9);
+        if ((el > 200 && ok) || el > budget) { clearInterval(iv); done(); }
+      }, 17);
+    }).then(function () {
+      var tail = frames.slice(-3);
+      return tail.reduce(function (s, f) { return s + f.sh; }, 0) / tail.length;
+    });
+  };
   try {
+    live = true;
+    var t00 = performance.now();
+    if (els.video.requestVideoFrameCallback) els.video.requestVideoFrameCallback(pump);
+    await sleep(120); // 泵起+首帧;frames 空 = rVFC 不可用
+    var noRVFC = frames.length === 0;
+    var score = async function (budget) {
+      if (noRVFC) { // 下限保险:固定驻留两帧取大(v3 手法)
+        await sleep(budget * 0.7);
+        var a = regionSharpness(cx, cy);
+        await sleep(60);
+        return Math.max(a, regionSharpness(cx, cy));
+      }
+      return settle(budget);
+    };
+    // 快路径:同点 8s 内重触,复用上次距离,清晰度对得上就收工
+    if (afMem.d > 0 && performance.now() < afMem.exp
+      && (cx - afMem.cx) * (cx - afMem.cx) + (cy - afMem.cy) * (cy - afMem.cy) < 0.18 * 0.18) {
+      await apply(afMem.d);
+      var fs2 = await score(400);
+      if (fs2 >= afMem.s * 0.75) {
+        lastFocus = afMem.d;
+        afMem.exp = performance.now() + 8000;
+        parkManual();
+        afLast = { fast: true, d: afMem.d, ms: Math.round(performance.now() - t00) };
+        return;
+      }
+    }
     var stops = [0.16, 0.35, 0.8, 1.8, 4.0, 9.0];
     var scores = [], i;
     for (i = 0; i < stops.length; i++) {
-      try { await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: stops[i] }] }); } catch (e) {}
-      await new Promise(function (r) { setTimeout(r, 120); });
-      var a = regionSharpness(cx, cy);
-      await new Promise(function (r) { setTimeout(r, 50); });
-      scores.push(Math.max(a, regionSharpness(cx, cy)));
+      await apply(stops[i]);
+      // 首档从连续档长途赶来,行程最长,预算放宽(实测 0.8→0.16 要 350ms+)
+      scores.push(await score(i === 0 ? 620 : 400));
+      if (i >= 1 && scores[i] < Math.max.apply(null, scores) * 0.65) break; // 峰在身后
     }
     var bi = 0;
-    for (i = 1; i < stops.length; i++) if (scores[i] > scores[bi]) bi = i;
+    for (i = 1; i < scores.length; i++) if (scores[i] > scores[bi]) bi = i;
     var second = 0;
-    for (i = 0; i < stops.length; i++) if (i !== bi && scores[i] > second) second = scores[i];
-    if (scores[bi] < second * 1.1) { applyFocus(0); return; } // 峰不可辨:交回连续,不乱停
-    var lo = stops[Math.max(0, bi - 1)], hi = stops[Math.min(stops.length - 1, bi + 1)];
+    for (i = 0; i < scores.length; i++) if (i !== bi && scores[i] > second) second = scores[i];
+    afLast = {
+      cx: +cx.toFixed(3), cy: +cy.toFixed(3),
+      stops: stops.slice(0, scores.length), scores: scores.map(function (x) { return +x.toFixed(4); }),
+      fallback: scores[bi] < second * 1.1, ms: Math.round(performance.now() - t00)
+    };
+    if (afLast.fallback) { applyFocus(0); afMem.d = 0; return; } // 峰不可辨:交回连续,不乱停
     var best = stops[bi], bs = scores[bi];
-    var mid = Math.sqrt(lo * hi); // 对数中点收一轮,把峰位定到 ±~7%
-    if (mid !== lo && mid !== hi && mid !== best) {
-      try { await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: mid }] }); } catch (e) {}
-      await new Promise(function (r) { setTimeout(r, 120); });
-      var s2 = regionSharpness(cx, cy);
-      if (s2 > bs) { bs = s2; best = mid; } else if (mid < best) hi = mid; else lo = mid;
+    if (bi >= 1 && bi <= scores.length - 2) {
+      var vd = afParabola(stops[bi - 1], stops[bi], stops[bi + 1], scores[bi - 1], scores[bi], scores[bi + 1]);
+      if (vd && Math.abs(Math.log(vd / best)) > Math.log(1.12)) {
+        await apply(vd);
+        var s2 = await score(400);
+        if (s2 > bs) { bs = s2; best = vd; }
+        afLast.vertex = { d: +vd.toFixed(3), sh: +s2.toFixed(4), taken: s2 >= bs };
+      }
     }
-    try { await t.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: best }] }); } catch (e) {}
+    await apply(best);
     lastFocus = best;
-    setTimeout(function () { if (!afBusy) applyFocus(0); }, 2500);
-  } finally { afBusy = false; }
+    afLast.best = +best.toFixed(3);
+    afMem.cx = cx; afMem.cy = cy; afMem.d = best; afMem.s = bs; afMem.exp = performance.now() + 8000;
+    parkManual();
+  } finally {
+    live = false;
+    afBusy = false;
+  }
 }
 
 els.camScreen.addEventListener('click', function (e) {
@@ -1823,7 +1905,7 @@ els.camScreen.addEventListener('click', function (e) {
   els.focusRing.classList.remove('on');
   void els.focusRing.offsetWidth;
   els.focusRing.classList.add('on');
-  tapFocus(vx, vy);
+  if (!afBusy) afWait = tapFocus(vx, vy).catch(function () {}); // afWait 给快门等对焦用;忙时不覆盖在跑的那次
 });
 
 var startSeq = 0; // 假起自愈会并发发起多次起流:只认最后一次,迟到的旧流直接丢弃
@@ -1839,6 +1921,7 @@ async function restart(want) {
     if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
     stream = s;
     facing = want;
+    afMem.d = 0; afMem.exp = 0; // 新轨道:重触记忆作废
     flashMode = 'off'; els.torchBtn.classList.remove('on'); // 新轨道补光默认关
     els.video.classList.remove('live');
     els.video.srcObject = s;
@@ -2340,8 +2423,8 @@ function watchDarkness() {
 }
 
 var shooting = false;
-function shutter() {
-  if (afBusy) { toast('对焦中,松开再拍'); return; }
+async function shutter() {
+  if (afBusy) { try { await afWait; } catch (e) {} } // 点对焦后立刻按快门:等扫完直接出片,不再拒拍
   if (shooting) return;
   if (!els.video.videoWidth) { toast('相机没准备好,试试左下角导入照片'); return; }
   var fire = function (blink) {

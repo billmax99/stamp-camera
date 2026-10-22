@@ -141,4 +141,22 @@ function arc(h, W, H) {
   console.log(`✓ 模板 ${TEMPLATES.length} 套 + 整体风格 ${STYLES.length} 套,引用全部可解析,默认模板 ${DEFAULT_TEMPLATE} 有效`);
 }
 
-console.log('OK: 6/6 组断言通过');
+// 7) 对焦抛物线:三档清晰度 → 对数空间顶点距离(纯函数,真机对焦精修用它)
+{
+  const fm = html.match(/function afParabola[\s\S]*?\n}/);
+  assert.ok(fm, 'index.html 里找不到 afParabola');
+  (0, eval)(fm[0]);
+  // 对称峰:顶点应落在峰档(0.8)±10%
+  const v1 = afParabola(0.35, 0.8, 1.8, 0.05, 0.10, 0.05);
+  assert.ok(Math.abs(v1 / 0.8 - 1) < 0.1, `对称峰顶点偏移过大: ${v1}`);
+  // 峰偏左:顶点应落在左半区间 (0.35, 0.8)
+  const v2 = afParabola(0.35, 0.8, 1.8, 0.09, 0.10, 0.04);
+  assert.ok(v2 > 0.35 && v2 < 0.8, `偏左峰顶点应在 (0.35,0.8): ${v2}`);
+  // 不凹(单调升):不可精修
+  assert.strictEqual(afParabola(0.35, 0.8, 1.8, 0.02, 0.05, 0.09), 0, '单调升曲线应返回 0');
+  // 顶点出界(升势减缓但斜率仍为正,峰在区间右外):不可精修
+  assert.strictEqual(afParabola(0.35, 0.8, 1.8, 0.01, 0.02, 0.024), 0, '出界顶点应返回 0');
+  console.log(`✓ 对焦抛物线顶点:对称峰=${v1.toFixed(2)} 偏左峰=${v2.toFixed(2)},不凹/出界正确拒精修`);
+}
+
+console.log('OK: 7/7 组断言通过');
