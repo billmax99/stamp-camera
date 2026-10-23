@@ -109,10 +109,10 @@ public class StampCam extends Plugin {
 
         final int gen = ++sweepGen;
         sweepLast = "rect" + region.toString() + " fw" + fw + " fh" + fh;
-        Thread t = new Thread(() -> runSweep(region, gen), "stampcam-sweep");
+        final PluginCall c = call;
+        Thread t = new Thread(() -> runSweep(region, gen, c), "stampcam-sweep");
         t.setDaemon(true);
         t.start();
-        call.resolve();
     }
 
     // ---------------- 对焦扫描(独立线程:onFrame 在相机线程更新分数,这里只等待) ----------------
@@ -126,13 +126,15 @@ public class StampCam extends Plugin {
     // 屈光度档,近→远(约合米 0.125/0.28/0.63/1.33/3.0/9)
     private static final double[] STOPS = {8.0, 3.6, 1.6, 0.75, 0.33, 0.11};
 
-    private void runSweep(Rect region, int gen) {
+    private void runSweep(Rect region, int gen, PluginCall call) {
         try {
             double[] scores = new double[STOPS.length];
+            int measured = 0;
             sweepRect = region;
             for (int i = 0; i < STOPS.length && gen == sweepGen; i++) {
                 applyDistance(STOPS[i]);
                 scores[i] = settleScore(i == 0 ? 650 : 500);
+                measured = i + 1;
                 double max = 0;
                 for (int j = 0; j <= i; j++) max = Math.max(max, scores[j]);
                 if (i >= 1 && scores[i] < max * 0.65) break; // 峰在身后
@@ -140,15 +142,14 @@ public class StampCam extends Plugin {
             if (gen != sweepGen) return;
             int bi = 0;
             for (int i = 1; i < scores.length; i++) if (scores[i] > scores[bi]) bi = i;
-            double second = 0;
-            for (int i = 0; i < scores.length; i++) if (i != bi && scores[i] > second) second = scores[i];
-            if (bi == scores.length - 1 || scores[bi] < second * 1.1) {
-                // 峰不可辨或峰在末档:停最远档不折腾,交回连续
+            double bs = scores[bi];
+            if (bs <= 0.0001) { // 全黑/镜头被挡:交回连续
                 sweepRect = null;
                 restoreContinuous();
+                call.resolve();
                 return;
             }
-            double best = STOPS[bi], bs = scores[bi];
+            double best = STOPS[bi];
             java.util.List<String> dbg = new java.util.ArrayList<>();
             for (int i = 0; i < scores.length; i++) dbg.add((int) STOPS[i] + ":" + String.format("%.4f", scores[i]));
             if (bi == 0) { // 峰在首档:真峰可能更靠前(首档与次档之间),补测对数中点
@@ -158,7 +159,7 @@ public class StampCam extends Plugin {
                 dbg.add("mid" + String.format("%.2f", mid) + ":" + String.format("%.4f", s2));
                 if (s2 > bs) { bs = s2; best = mid; }
             }
-            if (bi >= 1) { // 对数空间抛物线顶点;偏离>12% 才真动一次验证
+            if (bi >= 1 && bi <= measured - 2) { // 抛物线需要两侧都有实测值;偏离>12% 才真动一次验证
                 double vd = parabola(STOPS[bi - 1], STOPS[bi], STOPS[bi + 1], scores[bi - 1], scores[bi], scores[bi + 1]);
                 if (vd > 0 && Math.abs(Math.log(vd / best)) > Math.log(1.12)) {
                     applyDistance(vd);
@@ -171,8 +172,10 @@ public class StampCam extends Plugin {
             dbg.add("best" + String.format("%.2f", best));
             sweepLast = String.join(" ", dbg);
             sweepRect = null;
-            Thread.sleep(2500); // 停 2.5s 回连续保取景常锐;再点按会刷新代际
-            if (gen == sweepGen) restoreContinuous();
+            JSObject r = new JSObject();
+            r.put("best", best); // 折合米数,给 UI 显示"已锁定"
+            r.put("meters", best > 0 ? Math.round(100.0 / best) / 100.0 : 0);
+            call.resolve(r);
         } catch (Exception ignore) {
             sweepRect = null;
         }
@@ -251,6 +254,7 @@ public class StampCam extends Plugin {
                 r.put("w", img.getWidth());
                 r.put("h", img.getHeight());
                 c.resolve(r);
+                camPost(StampCam.this::restoreContinuous); // 拍完回连续:锁定完成使命,取景自适应新构图
             } catch (Exception e) {
                 c.reject("capture: " + e.getMessage());
             }

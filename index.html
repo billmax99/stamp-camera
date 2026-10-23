@@ -36,6 +36,7 @@ body{
 #vfInner{position:absolute;border:1px dashed rgba(255,255,255,.55)}
 #focusRing{position:absolute;width:74px;height:74px;margin:-37px 0 0 -37px;border:2px solid rgba(255,255,255,.95);border-radius:50%;box-shadow:0 0 0 1px rgba(0,0,0,.3);pointer-events:none;opacity:0}
 #focusRing.on{animation:fz .6s ease-out}
+#focusRing.locked{animation:fz .45s ease-out;border-color:rgba(255,214,79,.98)}
 @keyframes fz{0%{opacity:1;transform:scale(1.55)}70%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1)}}
 #torchBtn.on{background:rgba(255,214,79,.92)}
 #grid9 div{position:absolute;background:rgba(255,255,255,.38);box-shadow:0 0 1px rgba(0,0,0,.25)}
@@ -1900,8 +1901,14 @@ function afParabola(dLo, dB, dHi, sLo, sB, sHi) {
 // ponytail: 假设扫描期间场景与曝光基本静止(稳定场景实测帧间噪声±1.5%);
 // 曝光大变时稳定判据等满超时兜底、峰不显著交回连续对焦;rVFC 不可用退固定驻留两帧取大
 async function tapFocus(cx, cy) {
-  if (NATIVE) { // 原生:点按 = AF/AE 区域+触发,HAL 找峰;cx/cy 已是全帧内容坐标
-    try { await STAMPCAM.tapFocus({ x: cx, y: cy }); } catch (e) {}
+  if (NATIVE) { // 原生扫描定焦:resolve 即锁定完成,黄环确认;锁到下次点按/翻转/重开
+    try {
+      await STAMPCAM.tapFocus({ x: cx, y: cy });
+      els.focusRing.classList.remove('on', 'locked');
+      void els.focusRing.offsetWidth;
+      els.focusRing.classList.add('locked');
+      setTimeout(function () { els.focusRing.classList.remove('locked'); }, 600);
+    } catch (e) {}
     lastFocus = 0;
     return;
   }
