@@ -1730,6 +1730,111 @@ var stream = null, facing = 'environment';
 // 不动镜片(帧差0),手动 focusDistance 镜头真的会动(帧差22),点击对焦靠后者实现
 var lastFocus = 0;
 
+/* ============ 原生 Camera2 通道(仅 APK;网页/iOS 走 getUserMedia 老路) ============
+ * WebView 的 single-shot 对焦在红米/vivo 是假动作,点按对焦改由原生插件执行
+ * (AF/AE 区域 + AF_TRIGGER,HAL 自己找峰,墨影相机同款);预览经 127.0.0.1 MJPEG
+ * 帧流到 JS,canvas.captureStream 回喂同一个 <video>,美颜/人脸/裁切/点击映射零改动 */
+var NATIVE = false;
+try {
+  NATIVE = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform()
+    && Capacitor.Plugins && Capacitor.Plugins.StampCam);
+} catch (e) {}
+var STAMPCAM = NATIVE ? Capacitor.Plugins.StampCam : null;
+var natCv = null, natCtx = null, natAbort = null, natLastFrame = 0, natOpenAt = 0;
+
+async function nativeOpen(want) {
+  natOpenAt = performance.now();
+  natStop();
+  var r;
+  try { r = await STAMPCAM.open({ facing: want === 'user' ? 'front' : 'back' }); }
+  catch (e) { return false; }
+  if (!r || !r.streamUrl) return false;
+  stream = null;
+  facing = want;
+  flashMode = 'off'; els.torchBtn.classList.remove('on');
+  els.video.classList.toggle('mirrored', want === 'user');
+  els.video.classList.add('live');
+  natPump(r.streamUrl);
+  return true;
+}
+
+function natStop() {
+  if (natAbort) { try { natAbort.abort(); } catch (e) {} natAbort = null; }
+}
+
+// MJPEG 帧泵:按 JPEG SOI/EOI 切帧(JPEG 熵编码内不会出现 FFD8/FFD9)→ 画到竖立画布
+// → captureStream 回喂 video。断流且相机屏还在 = 相机挂了,整链重开
+async function natPump(url) {
+  natAbort = new AbortController();
+  var ctl = natAbort;
+  var buf = new Uint8Array(0);
+  try {
+    var res = await fetch(url, { signal: ctl.signal });
+    var rd = res.body.getReader();
+    for (;;) {
+      var got = await rd.read();
+      if (got.done || ctl.signal.aborted) break;
+      var nb = new Uint8Array(buf.length + got.value.length);
+      nb.set(buf); nb.set(got.value, buf.length); buf = nb;
+      if (buf.length > 2097152) buf = new Uint8Array(0); // 找不到边界:丢弃防涨死
+      for (;;) {
+        var s = findBytes(buf, 0xFF, 0xD8), e = s < 0 ? -1 : findBytes(buf, 0xFF, 0xD9, s + 2);
+        if (s < 0 || e < 0) break;
+        var frame = buf.slice(s, e + 2);
+        buf = buf.slice(e + 2);
+        try {
+          var bm = await createImageBitmap(new Blob([frame], { type: 'image/jpeg' }));
+          natDraw(bm);
+          bm.close();
+          natLastFrame = performance.now();
+        } catch (err) {}
+      }
+    }
+  } catch (e) {
+    // 断流且相机屏还在 = 相机挂了,整链重开;≥3s 退避,别把相机搅死
+    if (!ctl.signal.aborted && !els.camScreen.classList.contains('hidden')
+      && performance.now() - natOpenAt > 3000) {
+      setTimeout(function () { nativeOpen(facing); }, 500);
+    }
+  }
+}
+
+function findBytes(a, b1, b2, from) {
+  for (var i = from || 0; i < a.length - 1; i++) if (a[i] === b1 && a[i + 1] === b2) return i;
+  return -1;
+}
+
+// 传感器横帧 → 旋转 90° 画进竖立画布;后摄 90°(顺转),前摄 270°(逆转)。镜像仍交给
+// CSS .mirrored,canvas 消费者拿到的始终是未镜像内容,与 getUserMedia 路径同构
+function natDraw(bm) {
+  if (!natCtx) {
+    natCv = document.createElement('canvas');
+    natCtx = natCv.getContext('2d');
+  }
+  if (natCv.width !== bm.height || natCv.height !== bm.width) {
+    natCv.width = bm.height;
+    natCv.height = bm.width;
+    try {
+      els.video.srcObject = natCv.captureStream(24);
+      els.video.play().catch(function () {});
+    } catch (e) {}
+  }
+  natCtx.setTransform(1, 0, 0, 1, 0, 0);
+  if (facing === 'user') { natCtx.translate(0, natCv.height); natCtx.rotate(-Math.PI / 2); }
+  else { natCtx.translate(natCv.width, 0); natCtx.rotate(Math.PI / 2); }
+  natCtx.drawImage(bm, 0, 0);
+}
+
+async function torchSet(v) {
+  if (NATIVE) {
+    try { await STAMPCAM.setTorch({ on: v }); return true; } catch (e) { return false; }
+  }
+  var t = stream && stream.getVideoTracks()[0];
+  if (!t) return false;
+  try { await t.applyConstraints({ advanced: [{ torch: v }] }); return true; }
+  catch (e) { return false; }
+}
+
 function applyFocus(v) {
   lastFocus = v;
   var t = stream && stream.getVideoTracks()[0];
@@ -1795,6 +1900,11 @@ function afParabola(dLo, dB, dHi, sLo, sB, sHi) {
 // ponytail: 假设扫描期间场景与曝光基本静止(稳定场景实测帧间噪声±1.5%);
 // 曝光大变时稳定判据等满超时兜底、峰不显著交回连续对焦;rVFC 不可用退固定驻留两帧取大
 async function tapFocus(cx, cy) {
+  if (NATIVE) { // 原生:点按 = AF/AE 区域+触发,HAL 找峰;cx/cy 已是全帧内容坐标
+    try { await STAMPCAM.tapFocus({ x: cx, y: cy }); } catch (e) {}
+    lastFocus = 0;
+    return;
+  }
   if (afBusy || !stream) return;
   var t = stream.getVideoTracks()[0];
   if (!t || !t.applyConstraints) return;
@@ -1910,6 +2020,7 @@ els.camScreen.addEventListener('click', function (e) {
 
 var startSeq = 0; // 假起自愈会并发发起多次起流:只认最后一次,迟到的旧流直接丢弃
 async function restart(want) {
+  if (NATIVE) return nativeOpen(want); // 原生通道:起相机+帧泵,不走 getUserMedia
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
   var seq = ++startSeq;
   try {
@@ -1947,13 +2058,11 @@ els.torchBtn.addEventListener('click', async function () {
   var next = list[(list.indexOf(flashMode) + 1) % list.length] || 'off';
   flashMode = next;
   els.torchBtn.classList.toggle('on', flashMode !== 'off');
-  var t = stream && stream.getVideoTracks()[0];
-  var torch = function (v) { if (t) t.applyConstraints({ advanced: [{ torch: v }] }).catch(function () {}); };
   if (flashMode === 'torch') {
-    try { await t.applyConstraints({ advanced: [{ torch: true }] }); toast('常亮补光开'); }
-    catch (e) { flashMode = 'off'; els.torchBtn.classList.remove('on'); toast('这台设备不支持常亮补光'); }
+    if (await torchSet(true)) toast('常亮补光开');
+    else { flashMode = 'off'; els.torchBtn.classList.remove('on'); toast('这台设备不支持常亮补光'); }
   } else {
-    torch(false);
+    torchSet(false);
     toast(flashMode === 'screen' ? '屏幕补光:自拍时脸贴近屏幕' : flashMode === 'flash' ? '拍照时闪光' : '补光已关');
   }
 });
@@ -2365,6 +2474,11 @@ els.video.addEventListener('playing', function () {
 
 /* 退后台再回来:系统会把相机轨道掐成 ended,自动重开 */
 document.addEventListener('visibilitychange', function () {
+  if (NATIVE) { // 原生通道:后台整链释放,回前台重开
+    if (document.hidden) { natStop(); try { STAMPCAM.close(); } catch (e) {} }
+    else restart(facing);
+    return;
+  }
   if (document.hidden) return;
   var t = stream && stream.getVideoTracks()[0];
   if (!t || t.readyState !== 'live') restart(facing);
@@ -2398,6 +2512,10 @@ function watchDarkness() {
   var dark = 0, retried = false, warned = false, stall = 0, stallRetried = false;
   setInterval(function () {
     if (els.camScreen.classList.contains('hidden')) { dark = 0; stall = 0; return; }
+    if (NATIVE) { // 原生通道:video 由帧泵喂,帧停 5s 视为相机挂死,整链重开
+      if (performance.now() - natLastFrame > 5000) { natLastFrame = performance.now(); nativeOpen(facing); }
+      return;
+    }
     if (!els.video.videoWidth) { // 假起:getUserMedia 挂着不出帧(MIUI 冷启动常见),重启流
       stall++;
       if (stall === 5 && !stallRetried) { stallRetried = true; restart(facing); return; }
@@ -2427,14 +2545,34 @@ async function shutter() {
   if (afBusy) { try { await afWait; } catch (e) {} } // 点对焦后立刻按快门:等扫完直接出片,不再拒拍
   if (shooting) return;
   if (!els.video.videoWidth) { toast('相机没准备好,试试左下角导入照片'); return; }
-  var fire = function (blink) {
+  var fire = async function (blink) {
+    shooting = true; // 原生取帧有 await 间隙,先占位防连拍重入
     if (blink) { // 快门白闪只在非屏闪模式来一次:屏闪本身保持白屏,不再叠第二下
       els.flash.classList.remove('on');
       void els.flash.offsetWidth;
       els.flash.classList.add('on');
     }
-    var sw = els.video.videoWidth, sh = els.video.videoHeight, mirror = facing === 'user';
-    var frame = grabFrame(els.video, sw, sh, mirror);
+    var mirror = facing === 'user';
+    var sw, sh, frame;
+    if (NATIVE) { // 原生全幅 JPEG(已按传感器方向转正),不走预览帧
+      var shot = null;
+      try { shot = await STAMPCAM.capture(); } catch (e) {}
+      var img = null;
+      if (shot && shot.b64) {
+        img = await new Promise(function (res) {
+          var i = new Image();
+          i.onload = function () { res(i); };
+          i.onerror = function () { res(null); };
+          i.src = 'data:image/jpeg;base64,' + shot.b64;
+        });
+      }
+      if (!img) { toast('拍摄失败,再试一次'); shooting = false; return; }
+      sw = img.naturalWidth; sh = img.naturalHeight;
+      frame = grabFrame(img, sw, sh, mirror);
+    } else {
+      sw = els.video.videoWidth; sh = els.video.videoHeight;
+      frame = grabFrame(els.video, sw, sh, mirror);
+    }
     var faceData = null;
     if (lastFaceBox && (faceStickersOn() || settings.makeup.length || settings.thin > 0)) {
       faceData = {
@@ -2458,11 +2596,9 @@ async function shutter() {
     return;
   }
   if (flashMode === 'flash') { // 后置 LED:亮灯 0.26s 再取帧,拍完即灭
-    var tf = stream && stream.getVideoTracks()[0];
-    if (tf) tf.applyConstraints({ advanced: [{ torch: true }] }).catch(function () {});
+    torchSet(true);
     setTimeout(function () {
-      fire(true);
-      if (tf) tf.applyConstraints({ advanced: [{ torch: false }] }).catch(function () {});
+      fire(true).then(function () { torchSet(false); });
     }, 260);
     return;
   }

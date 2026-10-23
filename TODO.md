@@ -8,11 +8,13 @@
   滤镜(电影感/蓝调/暖调)·
   真人像虚化·贴饰跟脸·手电筒·九宫格构图线·显影动画·定时·分享、
   以吻封笺唇形票 + 拍嘴唇做专属吻章(色度抠图)
-- 真机点击对焦 v4:rVFC 逐帧采样+"连 3 帧波动<5% 满足 200ms"稳定判据读真值
-  (v3 固定等 170ms 读到的全是上一档残影,逐帧录屏实锤);近→远单向扫 6 档+
-  跌破峰值×0.65 提前收兵+对数抛物线免费定峰(顶点偏离>12% 才动一次验证)+
-  同点 8s 重触快路径(实测 0.36s)+快门等焦(不再"对焦中松开再拍");
-  getSettings 的 focusDistance 回显的是指令值不是实际镜位,不能当到位信号
+- 真机点击对焦 v5·原生通道:APK 内相机层整体换成原生 Camera2 插件(StampCam.java,
+  Java 写、零新依赖),点按对焦在原生层近→远扫档选峰(与 v4 同算法:稳定判据/提前
+  退出/对数抛物线,但没有 WebView 约束协商开销);预览走 127.0.0.1 MJPEG 帧流
+  →canvas→captureStream 回喂原 <video>,美颜/人脸/裁切/点击映射零改动;拍照
+  直取全幅 JPEG(4096 档),前后摄都可用(WebView 时代只暴露后摄)。
+  onyx 实锤:AF_TRIGGER+区域在这台红米也是假动作(2s 镜头纹丝不动),唯一听管的
+  是 manual LENS_FOCUS_DISTANCE;网页/iOS 自动回退 getUserMedia+v4 老路
 - Android:`邮票相机-debug.apk`(12.7MB)debug 签名,已在 vivo 真机端到端验证;
   MediaPipe(wasm+人脸/分割模型)打包在 vendor/ 经 www 进 APK,加载失败自动降级
 - 工作流:AGENTS.md / WRAP.md / TODO.md 就位(本文件),双电脑同步
@@ -63,11 +65,17 @@
       Pictures/邮票相机,API29+ MediaStore);分享兜底改存相册(弃图片
       剪贴板假成功);存册 toast 澄清应用内邮册语义;返回键回上一屏
       (pushState/popstate 栈,相机屏无历史时仍可正常退出)
-- [x] 点击对焦 v4(逐帧探针纠出 v3 残影采样 bug):rVFC 稳定判据每档读真值,
-      单向扫+提前退出(金扣场景 977ms,三档收兵,v3 要 1.5s 还读错)、
-      抛物线顶点精修(离线断言进 test.js)、重触 8s 快路径(363ms)、
-      快门等焦(扫描中按下→等完直接出片,真机已验)、停泊定时器防串。
-      待复验:首档 620ms 放宽预算(修"首击偶发判平坦"用,装包后 USB 断线未及回归)
+- [x] 点击对焦 v5·原生通道(用户定稿"像墨影那样,不管代价"):StampCam.java
+      Camera2 引擎(open/tapFocus 扫描/capture 全幅/torch/setManual·getState 调试),
+      MainActivity super.onCreate 前注册插件,Manifest 加 cleartext(loopback MJPEG);
+      踩坑记:①Capacitor 7 插件必须 super.onCreate 前 registerPlugin 否则进不了桥
+      ②loopback MJPEG 必须带 Access-Control-Allow-Origin: *(https://localhost 页面
+      跨 origin fetch,CORS 缺头=Failed to fetch,曾据此误判成网络层问题)
+      ③帧泵失败重试要有退避,否则每 500ms 关重开相机会把 HAL 搅死(CAMERA_DISCONNECTED)
+      ④onyx 的 AF_TRIGGER+区域假动作,manual 屈光度是唯一真通道;CaptureResult 的
+      LENS_FOCUS_DISTANCE 回报有时滞后数秒,别当实时真值
+      真机验证:点近物从无穷远拉回到正确距离(清晰度 2.1 倍)、torch、前摄镜像、
+      全幅拍照出票 1.5s、录屏对照预览正立无坏色;帧流 ~23.5fps 960 档
 - [x] 下载/分享改透明纯票(用户定稿):齿孔打穿孔外全透明,像真邮票;
       原"贴纸"按钮功能重复已删;桌布版只留邮册存档(composeStoreJpeg)。
       真机验证:下载 PNG 边缘 alpha 呈齿/孔交替,票面 255 四角 0

@@ -18,6 +18,8 @@ import java.io.OutputStream;
 public class MainActivity extends BridgeActivity {
   @Override
   public void onCreate(Bundle savedInstanceState) {
+    // 必须在 super.onCreate 之前:桥在 super 里装载插件,晚了进不了 Capacitor.Plugins
+    registerPlugin(StampCam.class);
     super.onCreate(savedInstanceState);
     // WebView 的 getUserMedia 依赖应用已持有相机运行时权限,启动即申请
     requestPermissions(new String[]{Manifest.permission.CAMERA}, 1001);
