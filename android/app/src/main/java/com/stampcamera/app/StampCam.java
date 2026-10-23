@@ -74,7 +74,14 @@ public class StampCam extends Plugin {
             openPending = true;
         }
         final PluginCall c = call;
+        final int myGen = ++openGen; // 看门狗代际:只管自己这次,别误杀下一次重试
         camPost(() -> openCamera(want, c));
+        camPostDelayed(() -> {
+            if (myGen == openGen && session == null) {
+                closeInternal();
+                fail(c, "相机 4s 未就绪(服务可能挂死),稍后重试");
+            }
+        }, 4000);
     }
 
     @PluginMethod
@@ -117,6 +124,7 @@ public class StampCam extends Plugin {
 
     // ---------------- 对焦扫描(独立线程:onFrame 在相机线程更新分数,这里只等待) ----------------
     private int sweepGen = 0;
+    private int openGen = 0;
     private volatile Rect sweepRect = null;  // 非空 = onFrame 要给这个区域打分
     private volatile double sweepScore = 0;  // 最近一帧的区域清晰度
     private volatile double sweepScoreTs = 0;
@@ -243,24 +251,32 @@ public class StampCam extends Plugin {
         if (s == null || d == null || stillReader == null) { call.reject("相机未开"); return; }
         final PluginCall c = call;
         stillReader.setOnImageAvailableListener(reader -> {
-            reader.setOnImageAvailableListener(null, null);
-            try (Image img = reader.acquireLatestImage()) {
-                if (img == null) { c.reject("空帧"); return; }
-                ByteBuffer bb = img.getPlanes()[0].getBuffer();
-                byte[] jpeg = new byte[bb.remaining()];
-                bb.get(jpeg);
-                JSObject r = new JSObject();
-                r.put("b64", Base64.encodeToString(jpeg, Base64.NO_WRAP));
-                r.put("w", img.getWidth());
-                r.put("h", img.getHeight());
-                c.resolve(r);
-                camPost(StampCam.this::restoreContinuous); // 拍完回连续:锁定完成使命,取景自适应新构图
+            try {
+                Image img = reader.acquireLatestImage();
+                if (img == null) return; // 首回调偶发无帧:不注销,等下一张
+                reader.setOnImageAvailableListener(null, null);
+                try (Image use = img) {
+                    ByteBuffer bb = use.getPlanes()[0].getBuffer();
+                    byte[] jpeg = new byte[bb.remaining()];
+                    bb.get(jpeg);
+                    JSObject r = new JSObject();
+                    r.put("b64", Base64.encodeToString(jpeg, Base64.NO_WRAP));
+                    r.put("w", use.getWidth());
+                    r.put("h", use.getHeight());
+                    c.resolve(r);
+                    camPost(StampCam.this::restoreContinuous); // 拍完回连续:锁定完成使命,取景自适应新构图
+                }
             } catch (Exception e) {
                 c.reject("capture: " + e.getMessage());
             }
         }, cam);
+        Double wantD = call.getDouble("diopter"); // 可选:测试/精修用,先走镜再拍
         camPost(() -> {
             try {
+                if (wantD != null) {
+                    applyDistance(wantD);
+                    Thread.sleep(400); // 镜头机械行程
+                }
                 CaptureRequest.Builder b = d.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
                 b.addTarget(stillReader.getSurface());
                 if (parkedDiopter >= 0) { // 停泊手动档:拍照同距离,不跑焦
@@ -354,6 +370,10 @@ public class StampCam extends Plugin {
 
     // ---------------- 内部:相机生命周期 ----------------
 
+    private void camPostDelayed(Runnable r, long ms) {
+        camPost(() -> cam.postDelayed(r, ms));
+    }
+
     private void camPost(Runnable r) {
         if (camThread == null) {
             camThread = new HandlerThread("stampcam");
@@ -433,6 +453,8 @@ public class StampCam extends Plugin {
             if (img == null) return;
             Rect sr = sweepRect;
             if (sr != null) { // 对焦扫描中:先给点击区打分(便宜,只在区域内采样)
+                // 全区域打分(±12%):实测收紧到中心反而漏拍"中央偏一点"的主体,
+                // 锁定与成片最优脱节(2026-10-23 两轮成片对照),别再收紧
                 sweepScore = yScore(img.getPlanes()[0], sr);
                 sweepScoreTs = System.currentTimeMillis();
             }
@@ -484,7 +506,7 @@ public class StampCam extends Plugin {
             interleaveUV(pl[2], pl[1], nv21, w, h); // planes[2]=V 在前 = NV21
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             new android.graphics.YuvImage(nv21, ImageFormat.NV21, w, h, null)
-                .compressToJpeg(new Rect(0, 0, w, h), 75, bos);
+                .compressToJpeg(new Rect(0, 0, w, h), 85, bos);
             return bos.toByteArray();
         } catch (Exception e) {
             return null;

@@ -1741,14 +1741,20 @@ try {
     && Capacitor.Plugins && Capacitor.Plugins.StampCam);
 } catch (e) {}
 var STAMPCAM = NATIVE ? Capacitor.Plugins.StampCam : null;
-var natCv = null, natCtx = null, natAbort = null, natLastFrame = 0, natOpenAt = 0;
+var natCv = null, natCtx = null, natAbort = null, natLastFrame = 0, natOpenAt = 0, natOpening = false;
 
 async function nativeOpen(want) {
+  if (natOpening) return false; // 在飞不重叠:看门狗/泵重试/启动三方都会调它
+  natOpening = true;
   natOpenAt = performance.now();
   natStop();
-  var r;
-  try { r = await STAMPCAM.open({ facing: want === 'user' ? 'front' : 'back' }); }
-  catch (e) { return false; }
+  var r = null;
+  try { r = await STAMPCAM.open({ facing: want === 'user' ? 'front' : 'back' }); } catch (e) {}
+  if (!r || !r.streamUrl) { // HAL 冷启动偶发不开:歇 400ms 再试一次,别等下一轮看门狗
+    await new Promise(function (x) { setTimeout(x, 400); });
+    try { r = await STAMPCAM.open({ facing: want === 'user' ? 'front' : 'back' }); } catch (e) {}
+  }
+  natOpening = false;
   if (!r || !r.streamUrl) return false;
   stream = null;
   facing = want;
@@ -2519,8 +2525,8 @@ function watchDarkness() {
   var dark = 0, retried = false, warned = false, stall = 0, stallRetried = false;
   setInterval(function () {
     if (els.camScreen.classList.contains('hidden')) { dark = 0; stall = 0; return; }
-    if (NATIVE) { // 原生通道:video 由帧泵喂,帧停 5s 视为相机挂死,整链重开
-      if (performance.now() - natLastFrame > 5000) { natLastFrame = performance.now(); nativeOpen(facing); }
+    if (NATIVE) { // 原生通道:video 由帧泵喂,帧停 3s 即整链重开(natOpening 防重叠捶打)
+      if (!natOpening && performance.now() - natLastFrame > 3000) nativeOpen(facing);
       return;
     }
     if (!els.video.videoWidth) { // 假起:getUserMedia 挂着不出帧(MIUI 冷启动常见),重启流
