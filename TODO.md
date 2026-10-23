@@ -69,6 +69,12 @@
       Pictures/邮票相机,API29+ MediaStore);分享兜底改存相册(弃图片
       剪贴板假成功);存册 toast 澄清应用内邮册语义;返回键回上一屏
       (pushState/popstate 栈,相机屏无历史时仍可正常退出)
+- [x] "对不准"排查定案(commit 711ab00):成片对照实验两轮实证"锁定距离=成片最清晰
+      距离",机制无错;实修三处:open 看门狗误杀下一次重试(加代际)、启动失败黑屏
+      5s+(在飞标志+即重试+3s 看门狗,修后 2s 出图)、capture 偶发空帧拒拍;
+      预览 q75→85;实验教训:打分区收紧到中心会与成片最优脱节,保持 ±12% 全区域。
+      固有边界(非 bug):手持移动后锁定不追(再点即重锁);低纹理目标(平滑的脸)
+      可能输给旁边高对比杂物——对比度 AF 无 PDAF 的物理极限
 - [x] 点击对焦 v5·原生通道(用户定稿"像墨影那样,不管代价"):StampCam.java
       Camera2 引擎(open/tapFocus 扫描/capture 全幅/torch/setManual·getState 调试),
       MainActivity super.onCreate 前注册插件,Manifest 加 cleartext(loopback MJPEG);
