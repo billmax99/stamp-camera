@@ -14,7 +14,11 @@
   →canvas→captureStream 回喂原 <video>,美颜/人脸/裁切/点击映射零改动;拍照
   直取全幅 JPEG(4096 档),前后摄都可用(WebView 时代只暴露后摄)。
   onyx 实锤:AF_TRIGGER+区域在这台红米也是假动作(2s 镜头纹丝不动),唯一听管的
-  是 manual LENS_FOCUS_DISTANCE;网页/iOS 自动回退 getUserMedia+v4 老路
+  是 manual LENS_FOCUS_DISTANCE;网页/iOS 自动回退 getUserMedia+v4 老路。
+  **点按=定焦锁定(sticky)**:扫完锁死在点击距离直到下次点按/拍照/翻转/重开,
+  拍照后自动回连续(拍完=重新构图);定稿教训:停泊 2.5s 就交回连续会被 HAL 把
+  焦点拉回中心(点按被撤销),中景"峰不可辨回连续"=白点,两者都是"点了没反应"
+  的直接元凶(用户真机反馈+复现定位)
 - Android:`邮票相机-debug.apk`(12.7MB)debug 签名,已在 vivo 真机端到端验证;
   MediaPipe(wasm+人脸/分割模型)打包在 vendor/ 经 www 进 APK,加载失败自动降级
 - 工作流:AGENTS.md / WRAP.md / TODO.md 就位(本文件),双电脑同步
